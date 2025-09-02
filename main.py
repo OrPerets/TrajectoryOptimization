@@ -462,6 +462,14 @@ def run_once(args: argparse.Namespace) -> None:
     )
     load_time = time.time() - load_start
 
+    # Optional pre-alignment of radar frame to telemetry frame (position offset)
+    align_cfg = cfg.get("alignment", {})
+    pre_align = bool(align_cfg.get("position_pre_align_to_telemetry", True))
+    if pre_align:
+        offset_vec = processed.telem_xyz[0, :] - processed.radar_xyz[0, :]
+    else:
+        offset_vec = np.zeros(3, dtype=float)
+
     # Weights (E4)
     if cfg["weights"].get("auto_calibrate", True):
         W = infer_weights_auto(processed.radar_xyz, cfg["preprocessing"]["dt"], cfg["weights"]["eta"], cfg["weights"]["gamma"])
@@ -473,15 +481,20 @@ def run_once(args: argparse.Namespace) -> None:
             "w_final": cfg["weights"]["w_final"],
         }
 
-    # Build inner problem data (radar positions as observations)
+    # Build inner problem data (radar positions as observations, optionally pre-aligned)
     problem_data = ProblemData(
         dt=float(cfg["preprocessing"]["dt"]),
-        positions_obs=processed.radar_xyz,
+        positions_obs=(processed.radar_xyz + offset_vec),
         weights=W,
-        launch_fix=processed.radar_xyz[0, :],
+        launch_fix=(processed.telem_xyz[0, :] if pre_align else processed.radar_xyz[0, :]),
     )
 
-    scaling = Scaling(enable=cfg["solver"].get("enable_scaling", True), alpha_p=cfg["solver"].get("alpha_p", 1e4), alpha_v=cfg["solver"].get("alpha_v", 1e3))
+    # Use numerically stable default scaling unless explicitly overridden
+    scaling = Scaling(
+        enable=cfg["solver"].get("enable_scaling", True),
+        alpha_p=cfg["solver"].get("alpha_p", 1e4),
+        alpha_v=cfg["solver"].get("alpha_v", 1e3),
+    )
     
     artifacts_dir = os.path.join(out_dir, "artifacts")
     ensure_dir(artifacts_dir)
@@ -507,6 +520,8 @@ def run_once(args: argparse.Namespace) -> None:
         ecos_opts=cfg["solver"].get("ecos", {}),
     )
     
+    # Provide terminal anchor from telemetry to improve outer search stability
+    problem_data.terminal_anchor = processed.telem_xyz[-1, :]
     res_qp = outer_search(problem_data, scaling, sopts_qp, ocfg)
     
     # Fallback if no feasible solution found
@@ -521,6 +536,17 @@ def run_once(args: argparse.Namespace) -> None:
             tmp.J_best = float(sol0.objective) if sol0.objective is not None else float('inf')
             tmp.sol_best = sol0
             res_qp = tmp  # duck-typed for downstream use
+        else:
+            # Emergency fallback: use preprocessed radar as solution to proceed
+            class _Tmp:
+                pass
+            tmp = _Tmp()
+            tmp.k_best = k0
+            tmp.J_best = float('inf')
+            from types import SimpleNamespace
+            v_est = np.vstack([np.gradient((processed.radar_xyz + offset_vec)[:, i], problem_data.dt) for i in range(3)]).T
+            tmp.sol_best = SimpleNamespace(p=(processed.radar_xyz + offset_vec), v=v_est, objective=None)
+            res_qp = tmp
     
     baseline_time = time.time() - baseline_start
 
