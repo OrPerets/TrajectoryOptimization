@@ -9,19 +9,19 @@ mapping:
   # Robust column mapping: project-specific names to canonical {time, lat, lon, alt, vx, vy, vz, doppler, slant_range}
   radar:
     time: ["time", "t", "timestamp", "Time"]
-    lat: ["lat", "latitude", "lat_s"]
-    lon: ["lon", "longitude", "lon_s"]
-    alt: ["alt", "altitude", "h", "alt_s"]
+    lat: ["lat", "latitude", "lat_s", "Weapon LAT (deg)", "Latitude"]
+    lon: ["lon", "longitude", "lon_s", "Weapon LON (deg)", "Longitude"]
+    alt: ["alt", "altitude", "h", "alt_s", "Weapon ALT (ft)", "Altitude"]
     doppler: ["doppler", "range_rate", "vr"]
     slant_range: ["slant_range", "range", "R"]
   telemetry:
     time: ["time", "t", "timestamp", "Time"]
-    lat: ["lat", "latitude"]
-    lon: ["lon", "longitude"]
-    alt: ["alt", "altitude", "h"]
-    vx: ["vx", "vel_x"]
-    vy: ["vy", "vel_y"]
-    vz: ["vz", "vel_z"]
+    lat: ["lat", "latitude", "Weapon LAT (deg)", "Lat", "Latitude"]
+    lon: ["lon", "longitude", "Weapon LON (deg)", "Lon", "Longitude"]
+    alt: ["alt", "altitude", "h", "Weapon ALT (ft)", "Altitude"]
+    vx: ["vx", "vel_x", "Velocity X", "Vx"]
+    vy: ["vy", "vel_y", "Velocity Y", "Vy"]
+    vz: ["vz", "vel_z", "Velocity Z", "Vz"]
 
 preprocessing:
   dt: 0.1
