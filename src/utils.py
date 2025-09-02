@@ -80,6 +80,64 @@ def apply_savgol(x: np.ndarray, window: int, polyorder: int) -> np.ndarray:
     return savgol_filter(x, window_length=window, polyorder=polyorder, mode="interp")
 
 
+def normalize_inputs(data: Dict[str, np.ndarray], cfg: Dict) -> Tuple[Dict[str, np.ndarray], Dict[str, Dict[str, float]]]:
+    """Center and scale position/velocity arrays to O(1) magnitudes.
+
+    Parameters
+    ----------
+    data: Dict[str, np.ndarray]
+        Dictionary containing at minimum ``"positions"`` with shape (N, 3). An optional
+        ``"velocities"`` key may provide corresponding velocity samples.
+    cfg: Dict
+        Configuration dictionary with optional ``general`` scaling entries:
+        ``enable_scaling``, ``scale_position_m``, and ``scale_velocity_mps``.
+
+    Returns
+    -------
+    Tuple[Dict[str, np.ndarray], Dict[str, Dict[str, float]]]
+        A tuple of (normalized_data, summary). ``normalized_data`` mirrors the
+        structure of ``data`` with centered/scaled arrays. ``summary`` contains
+        min/median/max magnitudes for the raw and normalized values, useful for
+        unit sanity checks.
+    """
+
+    positions = np.asarray(data["positions"], dtype=float)
+    velocities = np.asarray(data.get("velocities")) if "velocities" in data else None
+
+    gcfg = cfg.get("general", {})
+    enable = bool(gcfg.get("enable_scaling", True))
+    scale_p = float(gcfg.get("scale_position_m", 1.0)) if enable else 1.0
+    scale_v = float(gcfg.get("scale_velocity_mps", 1.0)) if enable else 1.0
+
+    pos_center = positions - positions.mean(axis=0, keepdims=True)
+    pos_norm = pos_center / scale_p
+
+    vel_norm = None
+    if velocities is not None:
+        vel_norm = velocities / scale_v
+
+    def _stats(arr: np.ndarray) -> Dict[str, float]:
+        mag = np.linalg.norm(arr, axis=1)
+        return {
+            "min": float(np.min(mag)),
+            "median": float(np.median(mag)),
+            "max": float(np.max(mag)),
+        }
+
+    summary: Dict[str, Dict[str, float]] = {
+        "position_raw": _stats(positions),
+        "position_norm": _stats(pos_norm),
+    }
+    if velocities is not None and vel_norm is not None:
+        summary["velocity_raw"] = _stats(velocities)
+        summary["velocity_norm"] = _stats(vel_norm)
+
+    norm_data: Dict[str, np.ndarray] = {"positions": pos_norm}
+    if vel_norm is not None:
+        norm_data["velocities"] = vel_norm
+    return norm_data, summary
+
+
 # Alignment (E2)
 
 def radial_velocity_from_velocity(v_xyz: np.ndarray, los_xyz: np.ndarray) -> np.ndarray:

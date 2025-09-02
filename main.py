@@ -49,6 +49,7 @@ from src.utils import (
     check_error_sanity,
     check_position_scale,
     clean_runtime_breakdown,
+    normalize_inputs,
 )
 
 
@@ -460,6 +461,11 @@ def run_once(args: argparse.Namespace) -> None:
         enforce=enforce,
         hard_max_m=hard_max,
     )
+    _, unit_summary = normalize_inputs(
+        {"positions": processed.radar_xyz, "velocities": processed.telem_vxyz},
+        cfg,
+    )
+    print("Unit summary:", json.dumps(unit_summary, indent=2))
     load_time = time.time() - load_start
 
     # Optional pre-alignment of radar frame to telemetry frame (position offset)
