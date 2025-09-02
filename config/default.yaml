@@ -5,6 +5,11 @@ paths:
   telemetry_csv: "Telemetric Output Conversion.csv"
   out_dir: "outputs/run_$(date +%Y%m%d_%H%M%S)"
 
+general:
+  enable_scaling: true
+  scale_position_m: 1e3
+  scale_velocity_mps: 10.0
+
 mapping:
   # Robust column mapping: project-specific names to canonical {time, lat, lon, alt, vx, vy, vz, doppler, slant_range}
   radar:

@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.data import _parse_time_col, convert_units, Streams, resample_and_filter, load_config
+from src.utils import normalize_inputs
 
 
 def test_parse_time_doy_format():
@@ -38,4 +40,23 @@ def test_offset_to_local_mapping(tmp_path):
     cfg["preprocessing"]["savgol_polyorder"] = 1
     proc = resample_and_filter(streams, cfg, out_dir=str(tmp_path))
     assert np.allclose(proc.radar_xyz[0], [200.0, 100.0, -50.0])
+
+
+def test_normalize_inputs_scaling():
+    data = {
+        "positions": np.array([[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0]]),
+        "velocities": np.array([[100.0, 0.0, 0.0], [100.0, 0.0, 0.0]]),
+    }
+    cfg = {
+        "general": {
+            "enable_scaling": True,
+            "scale_position_m": 1000.0,
+            "scale_velocity_mps": 100.0,
+        }
+    }
+    norm, summary = normalize_inputs(data, cfg)
+    assert np.allclose(norm["positions"], [[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0]])
+    assert np.allclose(norm["velocities"], [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    assert summary["position_raw"]["max"] == pytest.approx(1000.0)
+    assert summary["position_norm"]["max"] == pytest.approx(0.5)
 
