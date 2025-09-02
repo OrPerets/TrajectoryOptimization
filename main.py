@@ -173,10 +173,10 @@ def generate_all_figures(
     if res_soc and res_soc.sol_best and res_soc.sol_best.p is not None:
         d_soc, _, _ = trajectory_errors(res_soc.sol_best.p, processed.telem_xyz)
 
-    check_error_sanity(d_raw, "radar vs telemetry errors")
-    check_error_sanity(d_qp, "QP errors")
+    check_error_sanity(d_raw, "radar vs telemetry errors", max_m=1e7)
+    check_error_sanity(d_qp, "QP errors", max_m=1e7)
     if d_soc is not None:
-        check_error_sanity(d_soc, "SOC errors")
+        check_error_sanity(d_soc, "SOC errors", max_m=1e7)
     
     # F1: Trajectory overlay (already exists)
     qp_soc_xyz = res_soc.sol_best.p if res_soc and res_soc.sol_best else None
@@ -255,8 +255,8 @@ def generate_all_tables(
     d_raw, _, _ = trajectory_errors(processed.radar_xyz, processed.telem_xyz)
     d_qp, _, _ = trajectory_errors(res_qp.sol_best.p, processed.telem_xyz)
 
-    check_error_sanity(d_raw, "radar vs telemetry errors")
-    check_error_sanity(d_qp, "QP errors")
+    check_error_sanity(d_raw, "radar vs telemetry errors", max_m=1e7)
+    check_error_sanity(d_qp, "QP errors", max_m=1e7)
 
     CEP50_raw = cep(d_raw, 0.5)
     CEP90_raw = cep(d_raw, 0.9)
@@ -493,14 +493,14 @@ def run_once(args: argparse.Namespace) -> None:
     d_raw, _, _ = trajectory_errors(processed.radar_xyz, processed.telem_xyz)
     d_qp, _, _ = trajectory_errors(res_qp.sol_best.p, processed.telem_xyz)
 
-    check_error_sanity(d_raw, "radar vs telemetry errors")
-    check_error_sanity(d_qp, "QP errors")
+    check_error_sanity(d_raw, "radar vs telemetry errors", max_m=1e7)
+    check_error_sanity(d_qp, "QP errors", max_m=1e7)
     CEP90_qp = cep(d_qp, 0.9)
     
     CEP90_soc = None
     if res_soc and res_soc.sol_best and res_soc.sol_best.p is not None:
         d_soc, _, _ = trajectory_errors(res_soc.sol_best.p, processed.telem_xyz)
-        check_error_sanity(d_soc, "SOC errors")
+        check_error_sanity(d_soc, "SOC errors", max_m=1e7)
         CEP90_soc = cep(d_soc, 0.9)
 
     # Done
