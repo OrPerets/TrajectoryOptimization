@@ -61,11 +61,11 @@ Deliverables: faster stable solves, diagnostic logs, config toggles for TV type 
 
 ### Sprint 3 (Outer loop efficiency & reliability)
 Goals: Make k tuning faster and more robust.
-- [ ] Parallelize initial log-grid evaluations with warm-start propagation (thread/process pool).
-- [ ] Implement bracket expansion policy (geometric growth) until ≥3 feasible points or hard bounds reached.
-- [ ] Add safeguarded parabolic step with trust region in log k; keep feasibility bracket invariant.
-- [ ] Cache (k, J, status, warm-start) to disk for resumable runs.
-- [ ] Plot outer landscape (F6) with feasible points, best k*, and refinement steps.
+- [x] Parallelize initial log-grid evaluations with warm-start propagation (thread/process pool).
+- [x] Implement bracket expansion policy (geometric growth) until ≥3 feasible points or hard bounds reached.
+- [x] Add safeguarded parabolic step with trust region in log k; keep feasibility bracket invariant.
+- [x] Cache (k, J, status, warm-start) to disk for resumable runs.
+- [x] Plot outer landscape (F6) with feasible points, best k*, and refinement steps.
 
 Deliverables: faster outer loop, landscape figure, resumable state.
 

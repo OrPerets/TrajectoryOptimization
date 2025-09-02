@@ -54,3 +54,32 @@ def fig_error_timeseries(t: np.ndarray, d_raw: np.ndarray, d_qp: np.ndarray, d_s
     ax.set_ylabel(r"$\lVert p - \hat{p} \rVert$ [m]")
     ax.legend()
     _save(fig, out_dir, "fig_F2_time_series_errors")
+
+
+def fig_outer_landscape(history: List[Dict], out_dir: str) -> None:
+    """Plot outer-loop objective landscape (F6)."""
+    set_pub_style()
+    colors = palette()
+    ks = [h["k"] for h in history]
+    Js = [h["J"] for h in history]
+    feas = [h["feasible"] for h in history]
+    ks_feas = [k for k, f in zip(ks, feas) if f]
+    Js_feas = [j for j, f in zip(Js, feas) if f]
+    ks_infeas = [k for k, f in zip(ks, feas) if not f]
+    Js_infeas = [j for j, f in zip(Js, feas) if not f]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    if ks_infeas:
+        ax.scatter(ks_infeas, Js_infeas, color=colors[1], marker="x", label="Infeasible")
+    if ks_feas:
+        ax.scatter(ks_feas, Js_feas, color=colors[2], marker="o", label="Feasible")
+        j_best = min(Js_feas)
+        k_best = ks_feas[Js_feas.index(j_best)]
+        ax.scatter([k_best], [j_best], color=colors[0], marker="*", s=120, label="Best")
+    ref_steps = [(h["k"], h["J"]) for h in history if h.get("stage") == "refine"]
+    if len(ref_steps) > 1:
+        ax.plot([k for k, _ in ref_steps], [J for _, J in ref_steps], color=colors[3], linestyle="--", label="Refine")
+    ax.set_xscale("log")
+    ax.set_xlabel("k")
+    ax.set_ylabel("J")
+    ax.legend()
+    _save(fig, out_dir, "fig_F6_outer_landscape")
