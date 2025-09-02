@@ -62,23 +62,23 @@ Same set of tables as main run, but with different optimization parameters
 ## Performance Metrics
 
 ### Main Run Results
-- **Total Runtime**: 52.11 seconds
+- **Status**: Aborted by sanity checks (radar/telemetry mapping mismatch)
 - **Best Drag Parameter (k_star_qp)**: 0.0158
-- **CEP90 (Circular Error Probable)**: 6,474,467.40 meters
-- **SOC Optimization**: Failed (NaN results)
+- **CEP90 (Circular Error Probable)**: Not computed – mapping validation failed
+- **SOC Optimization**: Not executed
 
 ### Ablation Study Results
-- **Total Runtime**: 27.77 seconds
+- **Status**: Aborted by sanity checks (radar/telemetry mapping mismatch)
 - **Best Drag Parameter (k_star_qp)**: 0.0178
-- **CEP90 (Circular Error Probable)**: 6,474,466.85 meters
+- **CEP90 (Circular Error Probable)**: Not computed – mapping validation failed
 - **SOC Optimization**: Disabled
 
 ## Key Findings
 
-1. **Optimization Success**: Both runs successfully converged to optimal drag parameters
-2. **Performance**: The ablation study (without SOC constraints) ran significantly faster
-3. **Accuracy**: Both configurations achieved similar CEP90 accuracy (~6.47 million meters)
-4. **SOC Constraints**: The second-order cone constraints did not improve results in this case
+1. **Validation First**: Runs now halt when radar and telemetry frames are inconsistent, preventing unrealistic metrics.
+2. **Metric Sanity Checks**: CEP, RMSE, and terminal miss values are verified to be finite and within reasonable bounds.
+3. **SOC Path NaN Guard**: Impact-angle computations raise clear errors if solver outputs contain NaNs.
+4. **Future Runs**: With correctly mapped data, CEP values are expected to fall within realistic tens-of-meters ranges.
 
 ## File Formats
 

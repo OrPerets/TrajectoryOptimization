@@ -21,6 +21,7 @@ from .utils import (
     sha256_of_file,
     save_json,
     map_columns,
+    check_mapping_consistency,
 )
 
 
@@ -214,6 +215,9 @@ def resample_and_filter(streams: Streams, cfg: Dict, out_dir: str) -> Processed:
     p = int(cfg["preprocessing"]["savgol_polyorder"])
     radar_xyz_t = np.column_stack([apply_savgol(radar_xyz_t[:, i], w, p) for i in range(3)])
     telem_xyz_t = np.column_stack([apply_savgol(telem_xyz_t[:, i], w, p) for i in range(3)])
+
+    # Cross-check mapping to catch frame/offset issues
+    check_mapping_consistency(radar_xyz_t, telem_xyz_t)
 
     # Telemetry velocity by differentiating smoothed position
     telem_vxyz = np.vstack([np.gradient(telem_xyz_t[:, i], dt) for i in range(3)]).T

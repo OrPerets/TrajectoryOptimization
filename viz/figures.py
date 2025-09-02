@@ -72,7 +72,12 @@ def plot_timeseries_ci(df: pd.DataFrame,
             continue
             
         x_data = df[x].values
-        y_data = df[y_col].values
+        y_data = df[y_col].to_numpy()
+        if y_data.dtype == object:
+            try:
+                y_data = np.vstack(y_data)
+            except ValueError:
+                y_data = np.asarray(y_data)
         
         # Apply smoothing if requested
         if smooth and len(y_data) > smooth.get('window', 5):
@@ -114,17 +119,25 @@ def plot_timeseries_ci(df: pd.DataFrame,
     # Add terminal value annotations
     for i, y_col in enumerate(ys):
         if y_col in df.columns:
-            y_data = df[y_col].values
+            y_data = df[y_col].to_numpy()
+            if y_data.dtype == object:
+                try:
+                    y_data = np.vstack(y_data)
+                except ValueError:
+                    y_data = np.asarray(y_data)
             if len(y_data.shape) > 1:
                 y_final = np.mean(y_data[-1, :])
             else:
                 y_final = y_data[-1]
-            
-            ax.annotate(f"{y_col}: {y_final:.2f}", 
-                       xy=(x_data[-1], y_final),
-                       xytext=(10, 10), textcoords='offset points',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor=colors[i], alpha=0.7),
-                       fontsize=8)
+
+            ax.annotate(
+                f"{y_col}: {y_final:.2f}",
+                xy=(x_data[-1], y_final),
+                xytext=(10, 10),
+                textcoords="offset points",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=colors[i], alpha=0.7),
+                fontsize=8,
+            )
     
     ax.set_xlabel(x)
     ax.set_ylabel("Value")
@@ -212,8 +225,9 @@ def plot_violinbox(groups: Dict[str, np.ndarray],
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=45, ha='right')
     ax.set_ylabel(metric_name)
+    ax.set_xlabel("Method")
     ax.set_title(f"Distribution Comparison: {metric_name}")
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.grid(True, alpha=0.3)
     
     if savepath:
         save_figure(fig, savepath)

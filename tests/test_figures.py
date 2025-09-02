@@ -99,9 +99,9 @@ class TestVisualizationSystem(unittest.TestCase):
         multi_data = np.column_stack([
             self.baseline_data + 0.1 * np.random.randn(50) for _ in range(10)
         ])
-        
+
         test_df = self.test_df.copy()
-        test_df['baseline_multi'] = multi_data
+        test_df['baseline_multi'] = pd.Series(list(multi_data))
         
         fig, ax = plot_timeseries_ci(
             test_df, x='t', ys=['baseline_multi'],
@@ -222,10 +222,10 @@ class TestVisualizationSystem(unittest.TestCase):
         # Check that both figures have consistent styling
         self.assertEqual(ax1.get_xlabel(), 't')
         self.assertEqual(ax2.get_xlabel(), 'Method')
-        
-        # Check that grid is enabled
-        self.assertTrue(ax1.get_xgrid())
-        self.assertTrue(ax2.get_xgrid())
+
+        # Check that grid is enabled (at least one visible grid line)
+        self.assertTrue(any(line.get_visible() for line in ax1.get_xgridlines()))
+        self.assertTrue(any(line.get_visible() for line in ax2.get_xgridlines()))
 
 if __name__ == '__main__':
     # Check if required packages are available
