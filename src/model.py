@@ -60,6 +60,7 @@ class ProblemData:
     positions_obs: np.ndarray  # shape (T,3) observed radar positions in local frame
     weights: Dict[str, float]
     launch_fix: Optional[np.ndarray] = None  # p0 fixed
+    terminal_anchor: Optional[np.ndarray] = None  # optional terminal position anchor in local frame
 
 
 @dataclass
@@ -154,20 +155,21 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
         p_s[1:, :] == p_s[:-1, :] + (alpha_v / alpha_p) * (v_s[:-1, :] @ B.T) - g_vec_p
     ]
 
-    # Terminal altitude window around observed terminal altitude
+    # Terminal altitude window around anchor (telemetry) if provided, else observed terminal
     lo, hi = opts.terminal_altitude_window_m
+    term_ref = pd.terminal_anchor if pd.terminal_anchor is not None else positions_obs[T - 1, :]
     constraints += [
-        p_s[T - 1, 2] >= (positions_obs[T - 1, 2] + lo) / alpha_p,
-        p_s[T - 1, 2] <= (positions_obs[T - 1, 2] + hi) / alpha_p,
+        p_s[T - 1, 2] >= (term_ref[2] + lo) / alpha_p,
+        p_s[T - 1, 2] <= (term_ref[2] + hi) / alpha_p,
     ]
 
-    # Terminal xy box centered at observed terminal xy (robust box constraint)
+    # Terminal xy box centered at anchor (telemetry) if provided, else observed terminal (robust box constraint)
     box = opts.terminal_xy_box_m
     constraints += [
-        p_s[T - 1, 0] >= (positions_obs[T - 1, 0] - box) / alpha_p,
-        p_s[T - 1, 0] <= (positions_obs[T - 1, 0] + box) / alpha_p,
-        p_s[T - 1, 1] >= (positions_obs[T - 1, 1] - box) / alpha_p,
-        p_s[T - 1, 1] <= (positions_obs[T - 1, 1] + box) / alpha_p,
+        p_s[T - 1, 0] >= (term_ref[0] - box) / alpha_p,
+        p_s[T - 1, 0] <= (term_ref[0] + box) / alpha_p,
+        p_s[T - 1, 1] >= (term_ref[1] - box) / alpha_p,
+        p_s[T - 1, 1] <= (term_ref[1] + box) / alpha_p,
     ]
 
     # SOC impact-angle constraint (M2)
