@@ -51,9 +51,45 @@ def fig_error_timeseries(t: np.ndarray, d_raw: np.ndarray, d_qp: np.ndarray, d_s
     if d_soc is not None:
         ax.plot(t, d_soc, color=colors[3], label="QP+SOC")
     ax.set_xlabel("t [s]")
-    ax.set_ylabel(r"$\lVert p - \hat{p} \rVert$ [m]")
+    ax.set_ylabel(r"$\|p - \hat{p}\|$ [m]")
     ax.legend()
     _save(fig, out_dir, "fig_F2_time_series_errors")
+
+
+def fig_error_ecdf_hist(d_raw: np.ndarray, d_qp: np.ndarray, d_soc: Optional[np.ndarray], out_dir: str) -> None:
+    """Plot error ECDF and histogram (F3)."""
+    set_pub_style()
+    colors = palette()
+    fig, (ax_ecdf, ax_hist) = plt.subplots(1, 2, figsize=(8, 3))
+
+    def _ecdf(ax: plt.Axes, data: np.ndarray, color: str, label: str) -> None:
+        x = np.sort(data)
+        y = np.linspace(0.0, 1.0, len(x), endpoint=False)
+        ax.step(x, y, where="post", color=color, label=label)
+
+    _ecdf(ax_ecdf, d_raw, colors[1], "Raw")
+    _ecdf(ax_ecdf, d_qp, colors[2], "QP")
+    if d_soc is not None:
+        _ecdf(ax_ecdf, d_soc, colors[3], "QP+SOC")
+    ax_ecdf.set_xlabel(r"$\|p - \hat{p}\|$ [m]")
+    ax_ecdf.set_ylabel("ECDF")
+    ax_ecdf.set_title("Error ECDF")
+    ax_ecdf.legend()
+
+    max_val = max(
+        np.max(d_raw), np.max(d_qp), np.max(d_soc) if d_soc is not None else 0.0
+    )
+    bins = np.linspace(0.0, max_val, 30)
+    ax_hist.hist(d_raw, bins=bins, color=colors[1], alpha=0.5, label="Raw")
+    ax_hist.hist(d_qp, bins=bins, color=colors[2], alpha=0.5, label="QP")
+    if d_soc is not None:
+        ax_hist.hist(d_soc, bins=bins, color=colors[3], alpha=0.5, label="QP+SOC")
+    ax_hist.set_xlabel(r"$\|p - \hat{p}\|$ [m]")
+    ax_hist.set_ylabel("Count")
+    ax_hist.set_title("Error Histogram")
+    ax_hist.legend()
+
+    _save(fig, out_dir, "fig_F3_error_ecdf_hist")
 
 
 def fig_outer_landscape(history: List[Dict], out_dir: str) -> None:

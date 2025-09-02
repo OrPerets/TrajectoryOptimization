@@ -71,7 +71,13 @@ Deliverables: faster outer loop, landscape figure, resumable state.
 
 ### Sprint 4 (Evaluation, ablations, and figures)
 Goals: Complete F1–F9 and ablations; statistical tests.
-- [ ] Implement remaining figures: ECDF/hist (F3), CEP curves (F4), θ_max sensitivity (F5), runtime (F7), kinematics sanity (F8), impact-angle hist (F9).
+- [ ] Implement remaining figures:
+  - [x] ECDF/hist (F3)
+  - [ ] CEP curves (F4)
+  - [ ] θ_max sensitivity (F5)
+  - [ ] runtime (F7)
+  - [ ] kinematics sanity (F8)
+  - [ ] impact-angle hist (F9)
 - [ ] Implement T3–T5 tables: ablations (SOC on/off; θ_max; grid density), runtime breakdown, solver settings.
 - [ ] Add paired Wilcoxon tests for Raw vs QP and QP vs QP+SOC; annotate p-values on F4.
 - [ ] Aggregate across sorties: median [IQR] with confidence intervals.
