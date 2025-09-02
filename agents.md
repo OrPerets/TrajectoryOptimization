@@ -50,12 +50,12 @@ Deliverables: robust loader, alignment report per sortie, cached processed files
 
 ### Sprint 2 (Inner problem stability & performance)
 Goals: Improve numerical stability, exploit structure, reduce runtime.
-- [ ] Precompute and reuse step matrices for constant Δt; vectorize dynamics constraints generation.
-- [ ] Add banded/Toeplitz structure exploitation for second-difference operators; use CVXPY `cp.diff` where helpful.
-- [ ] Calibrate scaling (α_p, α_v) to keep residuals near O(1); auto-suggest values from data magnitudes.
-- [ ] Tighten solver tolerances adaptively (ECOS/OSQP) based on feasibility residuals; expose via config.
-- [ ] Add optional quadratic TV (QP) vs ℓ2-TV (SOCP) switch to speed QP path.
-- [ ] Add diagnostics: feasibility residuals by constraint family; terminal v_zN check when SOC active.
+- [x] Precompute and reuse step matrices for constant Δt; vectorize dynamics constraints generation.
+- [x] Add banded/Toeplitz structure exploitation for second-difference operators; use CVXPY `cp.diff` where helpful.
+- [x] Calibrate scaling (α_p, α_v) to keep residuals near O(1); auto-suggest values from data magnitudes.
+- [x] Tighten solver tolerances adaptively (ECOS/OSQP) based on feasibility residuals; expose via config.
+- [x] Add optional quadratic TV (QP) vs ℓ2-TV (SOCP) switch to speed QP path.
+- [x] Add diagnostics: feasibility residuals by constraint family; terminal v_zN check when SOC active.
 
 Deliverables: faster stable solves, diagnostic logs, config toggles for TV type and tolerances.
 
