@@ -1,0 +1,70 @@
+# Default configuration for radar-only trajectory reconstruction
+
+paths:
+  radar_csv: "S1_Hatala_83_sufa_trimmed (1).csv"
+  telemetry_csv: "Telemetric Output Conversion.csv"
+  out_dir: "outputs/run_$(date +%Y%m%d_%H%M%S)"
+
+mapping:
+  # Robust column mapping: project-specific names to canonical {time, lat, lon, alt, vx, vy, vz, doppler, slant_range}
+  radar:
+    time: ["time", "t", "timestamp", "Time"]
+    lat: ["lat", "latitude", "lat_s"]
+    lon: ["lon", "longitude", "lon_s"]
+    alt: ["alt", "altitude", "h", "alt_s"]
+    doppler: ["doppler", "range_rate", "vr"]
+    slant_range: ["slant_range", "range", "R"]
+  telemetry:
+    time: ["time", "t", "timestamp", "Time"]
+    lat: ["lat", "latitude"]
+    lon: ["lon", "longitude"]
+    alt: ["alt", "altitude", "h"]
+    vx: ["vx", "vel_x"]
+    vy: ["vy", "vel_y"]
+    vz: ["vz", "vel_z"]
+
+preprocessing:
+  dt: 0.1
+  outlier_iqr_factor: 1.5
+  savgol_window: 9
+  savgol_polyorder: 3
+
+alignment:
+  max_lag_seconds: 0.2
+  expect_lag_lt: 0.05
+
+weights:
+  auto_calibrate: true
+  eta: 10.0
+  gamma: 0.1
+
+solver:
+  enable_scaling: true
+  alpha_p: 1.0e4
+  alpha_v: 1.0e3
+  enable_soc: true
+  theta_max_deg: 15
+  terminal_altitude_window_m: [ -5.0, 5.0 ]
+  terminal_xy_box_m: 500.0
+  osqp:
+    eps_abs: 1.0e-5
+    eps_rel: 1.0e-5
+    max_iter: 200000
+  ecos:
+    abstol: 1.0e-7
+    reltol: 1.0e-7
+
+outer:
+  k_min: 0.02
+  k_max: 0.5
+  k_grid_points: 21
+  tol_k: 1.0e-3
+  tol_J: 1.0e-3
+  max_iters: 30
+
+ablations:
+  theta_grid_deg: [10, 15, 20]
+  grid_points: [9, 21]
+
+reproducibility:
+  seed: 42
