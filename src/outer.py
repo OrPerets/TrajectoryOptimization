@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -18,6 +20,13 @@ class OuterConfig:
     tol_k: float = 1e-3
     tol_J: float = 1e-3
     max_iters: int = 30
+    n_workers: int = 1
+    bracket_factor: float = 2.0
+    k_min_hard: float = 1e-3
+    k_max_hard: float = 1.0
+    trust_region: float = 1.0  # log10 distance
+    cache_path: Optional[str] = None
+    plot_dir: Optional[str] = None
 
 
 @dataclass
@@ -48,6 +57,35 @@ def evaluate_k(
     return J, sol, feasible
 
 
+def _append_cache(path: str, entry: Dict, sol: Solution) -> None:
+    data = dict(entry)
+    if sol.p is not None and sol.v is not None:
+        data["p"] = sol.p.tolist()
+        data["v"] = sol.v.tolist()
+    with open(path, "a") as f:
+        f.write(json.dumps(data) + "\n")
+
+
+def _load_cache(path: str) -> Tuple[List[Dict], List[Tuple[float, float, Solution]], Optional[float], float, Optional[Solution]]:
+    history: List[Dict] = []
+    feas_list: List[Tuple[float, float, Solution]] = []
+    best_J = math.inf
+    best_k = None
+    best_sol: Optional[Solution] = None
+    with open(path, "r") as f:
+        for line in f:
+            rec = json.loads(line)
+            history.append({"k": rec["k"], "J": rec["J"], "feasible": rec["feasible"], "stage": rec.get("stage", "cache")})
+            if rec.get("feasible") and rec.get("p") is not None:
+                sol = Solution(True, "cached", np.array(rec["p"]), np.array(rec["v"]), rec["J"], None)
+                feas_list.append((rec["k"], rec["J"], sol))
+                if rec["J"] < best_J:
+                    best_J = rec["J"]
+                    best_k = rec["k"]
+                    best_sol = sol
+    return history, feas_list, best_k, best_J, best_sol
+
+
 def parabola_vertex(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> Optional[float]:
     denom = (x1 - x2) * (x1 - x3) * (x2 - x3)
     if abs(denom) < 1e-16:
@@ -67,51 +105,76 @@ def outer_search(
     ocfg: OuterConfig,
 ) -> OuterResult:
     history: List[Dict] = []
-    K = logspace_grid(ocfg.k_min, ocfg.k_max, ocfg.k_grid_points)
+    feas_list: List[Tuple[float, float, Solution]] = []
     best_sol: Optional[Solution] = None
     best_J = math.inf
     best_k = None
 
-    # Initial sweep
-    prev_sol: Optional[Solution] = None
-    feas_list: List[Tuple[float, float, Solution]] = []
-    for k in K:
-        J, sol, feas = evaluate_k(k, pd, scaling, opts, warm_start_solution=prev_sol)
-        history.append({"k": k, "J": J, "feasible": bool(feas), "stage": "grid"})
-        if feas:
-            feas_list.append((k, J, sol))
-            if J < best_J:
-                best_J, best_k, best_sol = J, k, sol
-            prev_sol = sol
+    # Load cache if available
+    if ocfg.cache_path and os.path.exists(ocfg.cache_path):
+        history, feas_list, best_k, best_J, best_sol = _load_cache(ocfg.cache_path)
 
-    # If too few feasible, widen bracket heuristic
-    if len(feas_list) < 3:
-        # try a wider bracket by doubling range once
-        K2 = logspace_grid(max(ocfg.k_min * 0.5, 1e-3), ocfg.k_max * 2.0, ocfg.k_grid_points)
-        for k in K2:
-            J, sol, feas = evaluate_k(k, pd, scaling, opts, warm_start_solution=prev_sol)
-            history.append({"k": k, "J": J, "feasible": bool(feas), "stage": "grid_widen"})
+    k_min, k_max = ocfg.k_min, ocfg.k_max
+
+    def _eval_segment(ks: np.ndarray) -> Tuple[List[Dict], List[Tuple[float, float, Solution]]]:
+        seg_history: List[Dict] = []
+        seg_feas: List[Tuple[float, float, Solution]] = []
+        prev: Optional[Solution] = None
+        for k in ks:
+            J, sol, feas = evaluate_k(k, pd, scaling, opts, warm_start_solution=prev)
+            entry = {"k": k, "J": J, "feasible": bool(feas), "stage": "grid"}
+            seg_history.append(entry)
+            if ocfg.cache_path:
+                _append_cache(ocfg.cache_path, entry, sol)
             if feas:
+                seg_feas.append((k, J, sol))
+                prev = sol
+        return seg_history, seg_feas
+
+    # Initial sweep with bracket expansion
+    while True:
+        K = logspace_grid(k_min, k_max, ocfg.k_grid_points)
+        if ocfg.n_workers > 1:
+            segments = np.array_split(K, ocfg.n_workers)
+            with ThreadPoolExecutor(max_workers=ocfg.n_workers) as ex:
+                futures = [ex.submit(_eval_segment, seg) for seg in segments]
+                for fut in futures:
+                    seg_hist, seg_feas = fut.result()
+                    history.extend(seg_hist)
+                    for k, J, sol in seg_feas:
+                        feas_list.append((k, J, sol))
+                        if J < best_J:
+                            best_J, best_k, best_sol = J, k, sol
+        else:
+            seg_hist, seg_feas = _eval_segment(K)
+            history.extend(seg_hist)
+            for k, J, sol in seg_feas:
                 feas_list.append((k, J, sol))
                 if J < best_J:
                     best_J, best_k, best_sol = J, k, sol
-                prev_sol = sol
+        if len(feas_list) >= 3 or (k_min <= ocfg.k_min_hard and k_max >= ocfg.k_max_hard):
+            break
+        k_min = max(k_min / ocfg.bracket_factor, ocfg.k_min_hard)
+        k_max = min(k_max * ocfg.bracket_factor, ocfg.k_max_hard)
 
     if best_k is None:
-        # Return best infeasible attempt
-        return OuterResult(k_best=float("nan"), J_best=float("inf"), sol_best=prev_sol or Solution(False, "infeasible", None, None, None, None), history=history)
+        return OuterResult(
+            k_best=float("nan"),
+            J_best=float("inf"),
+            sol_best=best_sol or Solution(False, "infeasible", None, None, None, None),
+            history=history,
+        )
 
     # Refinement iterations
     feas_list.sort(key=lambda t: t[0])
+    k_br_low = min(k for k, _, _ in feas_list)
+    k_br_high = max(k for k, _, _ in feas_list)
     for it in range(ocfg.max_iters):
-        # choose best triplet around best_k
         ks = [k for k, _, _ in feas_list]
         idx = int(np.argmin([abs(k - best_k) for k in ks]))
-        # choose neighbors
         j1 = max(0, idx - 1)
         j3 = min(len(ks) - 1, idx + 1)
         if j3 - j1 < 2:
-            # pick widest available triplet
             if len(ks) >= 3:
                 j1, j3 = 0, 2
             else:
@@ -126,26 +189,38 @@ def outer_search(
         k_new = float(math.exp(xv))
         if k_new <= 0:
             break
-        # bracket within min/max of current neighbors
         k_low = min(k1, k3)
         k_high = max(k1, k3)
         k_new = min(max(k_new, k_low), k_high)
+        logk = math.log10(k_new)
+        log_best = math.log10(best_k)
+        logk = min(max(logk, log_best - ocfg.trust_region), log_best + ocfg.trust_region)
+        k_new = 10 ** logk
+        k_new = min(max(k_new, k_br_low), k_br_high)
 
         J_new, sol_new, feas_new = evaluate_k(k_new, pd, scaling, opts, warm_start_solution=best_sol)
-        history.append({"k": k_new, "J": J_new, "feasible": bool(feas_new), "stage": "refine", "iter": it})
+        entry = {"k": k_new, "J": J_new, "feasible": bool(feas_new), "stage": "refine", "iter": it}
+        history.append(entry)
+        if ocfg.cache_path:
+            _append_cache(ocfg.cache_path, entry, sol_new)
 
         if feas_new:
             feas_list.append((k_new, J_new, sol_new))
             if J_new < best_J - ocfg.tol_J:
                 best_J, best_k, best_sol = J_new, k_new, sol_new
-            # stopping criteria
+            k_br_low = min(k_br_low, k_new)
+            k_br_high = max(k_br_high, k_new)
             if abs(k_new - k2) < ocfg.tol_k and abs(J_new - J2) < ocfg.tol_J:
                 break
         else:
-            # Move towards feasible side: shrink towards best_k
-            if k_new > best_k:
-                k_high = k_new
+            if k_new < best_k:
+                k_br_low = max(k_br_low, k_new)
             else:
-                k_low = k_new
-            # If too many infeasible steps, break
+                k_br_high = min(k_br_high, k_new)
+
+    if ocfg.plot_dir:
+        from .figures import fig_outer_landscape
+
+        fig_outer_landscape(history, ocfg.plot_dir)
+
     return OuterResult(k_best=best_k, J_best=best_J, sol_best=best_sol, history=history)
