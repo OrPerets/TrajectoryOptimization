@@ -705,6 +705,479 @@ def plot_trajectory_xy(x: np.ndarray,
     
     return fig, ax
 
+
+def plot_enhanced_trajectory_2d(x: np.ndarray, 
+                               y: np.ndarray,
+                               t: Optional[np.ndarray] = None,
+                               velocity: Optional[np.ndarray] = None,
+                               title: str = "Enhanced 2D Trajectory",
+                               xlabel: str = "X [m]",
+                               ylabel: str = "Y [m]",
+                               smooth_factor: float = 0.1,
+                               arrow_frequency: int = 10,
+                               show_velocity_profile: bool = True,
+                               savepath: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
+    """Plot enhanced 2D trajectory with smooth curves, directional arrows, and advanced styling.
+    
+    Parameters
+    ----------
+    x, y : np.ndarray
+        Trajectory coordinates
+    t : Optional[np.ndarray]
+        Time points for color coding
+    velocity : Optional[np.ndarray]
+        Velocity magnitude for color coding and width variation
+    title : str
+        Plot title
+    xlabel, ylabel : str
+        Axis labels
+    smooth_factor : float
+        Smoothing factor for spline interpolation (0-1)
+    arrow_frequency : int
+        Frequency of directional arrows
+    show_velocity_profile : bool
+        Whether to show velocity as line width variation
+    savepath : Optional[str]
+        Path to save figure
+        
+    Returns
+    -------
+    Tuple[plt.Figure, plt.Axes]
+        Figure and axes objects
+    """
+    from scipy.interpolate import make_interp_spline
+    from matplotlib.patches import FancyArrowPatch
+    from matplotlib.patches import Circle
+    
+    fig, ax = plt.subplots(figsize=get_figure_size('single', 4/3))
+    setup_axes_style(ax)
+    
+    # Create smooth interpolated trajectory
+    if len(x) > 3 and smooth_factor > 0:
+        # Parameterize by arc length for better interpolation
+        distances = np.cumsum(np.sqrt(np.diff(x)**2 + np.diff(y)**2))
+        distances = np.insert(distances, 0, 0)
+        
+        # Create more points for smoother curves
+        n_smooth = max(len(x) * 3, 200)
+        t_smooth = np.linspace(0, distances[-1], n_smooth)
+        
+        try:
+            # Spline interpolation
+            k = min(3, len(x) - 1)  # Spline degree
+            spline_x = make_interp_spline(distances, x, k=k)
+            spline_y = make_interp_spline(distances, y, k=k)
+            
+            x_smooth = spline_x(t_smooth)
+            y_smooth = spline_y(t_smooth)
+        except:
+            # Fallback to original points if spline fails
+            x_smooth, y_smooth = x, y
+            t_smooth = distances
+    else:
+        x_smooth, y_smooth = x, y
+        t_smooth = np.arange(len(x))
+    
+    # Prepare color mapping
+    if t is not None and len(t) == len(x):
+        # Interpolate time values to smooth trajectory
+        if len(x_smooth) != len(x):
+            t_interp = np.interp(np.linspace(0, len(x)-1, len(x_smooth)), 
+                                np.arange(len(x)), t)
+        else:
+            t_interp = t
+        colors = t_interp
+        cmap_name = 'plasma'
+        color_label = 'Time [s]'
+    elif velocity is not None and len(velocity) == len(x):
+        if len(x_smooth) != len(x):
+            v_interp = np.interp(np.linspace(0, len(x)-1, len(x_smooth)), 
+                                np.arange(len(x)), velocity)
+        else:
+            v_interp = velocity
+        colors = v_interp
+        cmap_name = 'viridis'
+        color_label = 'Velocity [m/s]'
+    else:
+        colors = np.linspace(0, 1, len(x_smooth))
+        cmap_name = 'viridis'
+        color_label = 'Progress'
+    
+    # Main trajectory with gradient coloring
+    if show_velocity_profile and velocity is not None:
+        # Variable line width based on velocity
+        v_norm = (velocity - np.min(velocity)) / (np.max(velocity) - np.min(velocity) + 1e-8)
+        linewidths = 1 + 3 * v_norm  # Width between 1 and 4
+        
+        # Plot segments with varying width
+        for i in range(len(x) - 1):
+            ax.plot(x[i:i+2], y[i:i+2], 
+                   color=plt.cm.get_cmap(cmap_name)(colors[i] if len(colors) == len(x) else colors[min(i, len(colors)-1)]),
+                   linewidth=linewidths[i], alpha=0.8, solid_capstyle='round')
+    else:
+        # Standard colored line
+        for i in range(len(x_smooth) - 1):
+            ax.plot(x_smooth[i:i+2], y_smooth[i:i+2], 
+                   color=plt.cm.get_cmap(cmap_name)(colors[i]), 
+                   linewidth=2.5, alpha=0.9, solid_capstyle='round')
+    
+    # Add directional arrows along trajectory
+    if arrow_frequency > 0 and len(x) > arrow_frequency:
+        arrow_indices = np.arange(arrow_frequency, len(x), arrow_frequency)
+        for idx in arrow_indices:
+            if idx < len(x) - 1:
+                # Calculate arrow direction
+                dx = x[idx + 1] - x[idx - 1] if idx > 0 else x[idx + 1] - x[idx]
+                dy = y[idx + 1] - y[idx - 1] if idx > 0 else y[idx + 1] - y[idx]
+                
+                # Normalize direction vector
+                length = np.sqrt(dx**2 + dy**2)
+                if length > 0:
+                    dx, dy = dx/length, dy/length
+                    
+                    # Scale arrow size based on local trajectory curvature
+                    arrow_scale = 0.02 * (ax.get_xlim()[1] - ax.get_xlim()[0])
+                    
+                    arrow = FancyArrowPatch(
+                        (x[idx] - dx * arrow_scale/2, y[idx] - dy * arrow_scale/2),
+                        (x[idx] + dx * arrow_scale/2, y[idx] + dy * arrow_scale/2),
+                        arrowstyle='->', mutation_scale=15, 
+                        color='black', alpha=0.7, zorder=10
+                    )
+                    ax.add_patch(arrow)
+    
+    # Enhanced start and end markers
+    # Start marker - larger circle with glow effect
+    start_circle = Circle((x[0], y[0]), radius=0.01*(ax.get_xlim()[1] - ax.get_xlim()[0]), 
+                         facecolor='green', edgecolor='darkgreen', linewidth=2, alpha=0.9, zorder=15)
+    ax.add_patch(start_circle)
+    ax.scatter(x[0], y[0], s=200, color='lightgreen', marker='o', 
+              edgecolors='darkgreen', linewidth=2, label='Start', zorder=16, alpha=0.8)
+    
+    # End marker - square with glow effect
+    ax.scatter(x[-1], y[-1], s=250, color='red', marker='s', 
+              edgecolors='darkred', linewidth=2, label='End', zorder=16, alpha=0.9)
+    
+    # Add colorbar for the trajectory coloring
+    sm = plt.cm.ScalarMappable(cmap=cmap_name, norm=plt.Normalize(vmin=np.min(colors), vmax=np.max(colors)))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.8, aspect=20)
+    cbar.set_label(color_label, rotation=270, labelpad=15)
+    
+    # Enhanced statistics with better formatting
+    if len(x) > 1:
+        total_distance = np.sum(np.sqrt(np.diff(x)**2 + np.diff(y)**2))
+        straight_distance = np.sqrt((x[-1] - x[0])**2 + (y[-1] - y[0])**2)
+        efficiency = straight_distance / total_distance if total_distance > 0 else 0
+        
+        if velocity is not None:
+            avg_velocity = np.mean(velocity)
+            max_velocity = np.max(velocity)
+            stats_text = (f"Distance: {total_distance:.1f} m\n"
+                         f"Efficiency: {efficiency:.2f}\n"
+                         f"Avg Speed: {avg_velocity:.1f} m/s\n"
+                         f"Max Speed: {max_velocity:.1f} m/s\n"
+                         f"Points: {len(x)}")
+        else:
+            stats_text = (f"Distance: {total_distance:.1f} m\n"
+                         f"Efficiency: {efficiency:.2f}\n"
+                         f"Points: {len(x)}")
+        
+        # Stylish stats box
+        props = dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, 
+                    edgecolor='gray', linewidth=1)
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                verticalalignment='top', fontsize=8, bbox=props, family='monospace')
+    
+    # Professional styling
+    ax.set_xlabel(xlabel, fontsize=10, fontweight='bold')
+    ax.set_ylabel(ylabel, fontsize=10, fontweight='bold')
+    ax.set_title(title, fontsize=12, fontweight='bold', pad=20)
+    ax.legend(loc='upper right', framealpha=0.9, shadow=True)
+    ax.grid(True, alpha=0.2, linestyle='--')
+    ax.set_aspect('equal', adjustable='box')
+    
+    # Adjust limits with padding
+    x_range = np.max(x) - np.min(x)
+    y_range = np.max(y) - np.min(y)
+    padding = 0.1
+    
+    ax.set_xlim(np.min(x) - padding * x_range, np.max(x) + padding * x_range)
+    ax.set_ylim(np.min(y) - padding * y_range, np.max(y) + padding * y_range)
+    
+    if savepath:
+        save_figure(fig, savepath)
+    
+    return fig, ax
+
+
+def plot_enhanced_trajectory_3d(x: np.ndarray, 
+                               y: np.ndarray, 
+                               z: np.ndarray,
+                               t: Optional[np.ndarray] = None,
+                               velocity: Optional[np.ndarray] = None,
+                               title: str = "Enhanced 3D Trajectory",
+                               smooth_factor: float = 0.1,
+                               show_projection_shadows: bool = True,
+                               view_angle: Tuple[float, float] = (30, 45),
+                               savepath: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
+    """Plot enhanced 3D trajectory with smooth curves, shadows, and professional styling.
+    
+    Parameters
+    ----------
+    x, y, z : np.ndarray
+        3D trajectory coordinates
+    t : Optional[np.ndarray]
+        Time points for color coding
+    velocity : Optional[np.ndarray]
+        Velocity magnitude for color coding
+    title : str
+        Plot title
+    smooth_factor : float
+        Smoothing factor for spline interpolation
+    show_projection_shadows : bool
+        Whether to show projection shadows on coordinate planes
+    view_angle : Tuple[float, float]
+        Viewing angle (elevation, azimuth) in degrees
+    savepath : Optional[str]
+        Path to save figure
+        
+    Returns
+    -------
+    Tuple[plt.Figure, plt.Axes]
+        Figure and 3D axes objects
+    """
+    from scipy.interpolate import make_interp_spline
+    from mpl_toolkits.mplot3d import Axes3D
+    
+    fig = plt.figure(figsize=get_figure_size('single', 4/3))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Create smooth interpolated trajectory
+    if len(x) > 3 and smooth_factor > 0:
+        try:
+            # Parameterize by arc length
+            distances = np.cumsum(np.sqrt(np.diff(x)**2 + np.diff(y)**2 + np.diff(z)**2))
+            distances = np.insert(distances, 0, 0)
+            
+            # Create smoother trajectory
+            n_smooth = max(len(x) * 2, 100)
+            t_smooth = np.linspace(0, distances[-1], n_smooth)
+            
+            k = min(3, len(x) - 1)
+            spline_x = make_interp_spline(distances, x, k=k)
+            spline_y = make_interp_spline(distances, y, k=k)
+            spline_z = make_interp_spline(distances, z, k=k)
+            
+            x_smooth = spline_x(t_smooth)
+            y_smooth = spline_y(t_smooth)
+            z_smooth = spline_z(t_smooth)
+        except:
+            x_smooth, y_smooth, z_smooth = x, y, z
+    else:
+        x_smooth, y_smooth, z_smooth = x, y, z
+    
+    # Prepare color mapping
+    if velocity is not None and len(velocity) == len(x):
+        if len(x_smooth) != len(x):
+            colors = np.interp(np.linspace(0, len(x)-1, len(x_smooth)), 
+                              np.arange(len(x)), velocity)
+        else:
+            colors = velocity
+        cmap_name = 'plasma'
+        color_label = 'Velocity [m/s]'
+    elif t is not None and len(t) == len(x):
+        if len(x_smooth) != len(x):
+            colors = np.interp(np.linspace(0, len(x)-1, len(x_smooth)), 
+                              np.arange(len(x)), t)
+        else:
+            colors = t
+        cmap_name = 'viridis'
+        color_label = 'Time [s]'
+    else:
+        colors = np.linspace(0, 1, len(x_smooth))
+        cmap_name = 'viridis'
+        color_label = 'Progress'
+    
+    # Plot main 3D trajectory with color gradient
+    for i in range(len(x_smooth) - 1):
+        ax.plot3D(x_smooth[i:i+2], y_smooth[i:i+2], z_smooth[i:i+2], 
+                 color=plt.cm.get_cmap(cmap_name)(colors[i]),
+                 linewidth=2.5, alpha=0.9)
+    
+    # Add projection shadows if requested
+    if show_projection_shadows:
+        # Get axis limits
+        x_min, x_max = np.min(x), np.max(x)
+        y_min, y_max = np.min(y), np.max(y)
+        z_min, z_max = np.min(z), np.max(z)
+        
+        # XY projection (shadow on bottom)
+        ax.plot(x, y, z_min, color='gray', alpha=0.3, linewidth=1, linestyle='--')
+        
+        # XZ projection (shadow on side)
+        ax.plot(x, y_max, z, color='gray', alpha=0.3, linewidth=1, linestyle='--')
+        
+        # YZ projection (shadow on side)
+        ax.plot(x_min, y, z, color='gray', alpha=0.3, linewidth=1, linestyle='--')
+    
+    # Enhanced start and end markers
+    ax.scatter(x[0], y[0], z[0], s=200, c='green', marker='o', 
+              edgecolors='darkgreen', linewidth=2, label='Start', alpha=0.9)
+    ax.scatter(x[-1], y[-1], z[-1], s=250, c='red', marker='s', 
+              edgecolors='darkred', linewidth=2, label='End', alpha=0.9)
+    
+    # Add colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap_name, norm=plt.Normalize(vmin=np.min(colors), vmax=np.max(colors)))
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.6, aspect=15)
+    cbar.set_label(color_label, rotation=270, labelpad=15)
+    
+    # Professional 3D styling
+    ax.set_xlabel('X [m]', fontweight='bold')
+    ax.set_ylabel('Y [m]', fontweight='bold')
+    ax.set_zlabel('Z [m]', fontweight='bold')
+    ax.set_title(title, fontweight='bold', pad=20)
+    
+    # Set viewing angle
+    ax.view_init(elev=view_angle[0], azim=view_angle[1])
+    
+    # Improve 3D appearance
+    ax.grid(True, alpha=0.2)
+    ax.legend(loc='upper left')
+    
+    # Make axes equal aspect ratio
+    max_range = np.array([x.max()-x.min(), y.max()-y.min(), z.max()-z.min()]).max() / 2.0
+    mid_x = (x.max()+x.min()) * 0.5
+    mid_y = (y.max()+y.min()) * 0.5
+    mid_z = (z.max()+z.min()) * 0.5
+    
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+    
+    if savepath:
+        save_figure(fig, savepath)
+    
+    return fig, ax
+
+
+def plot_trajectory_comparison(trajectories: Dict[str, Dict[str, np.ndarray]], 
+                              title: str = "Trajectory Comparison",
+                              uncertainty_bands: Optional[Dict[str, Dict[str, np.ndarray]]] = None,
+                              show_arrows: bool = True,
+                              savepath: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
+    """Plot multiple trajectories with uncertainty bands and professional comparison.
+    
+    Parameters
+    ----------
+    trajectories : Dict[str, Dict[str, np.ndarray]]
+        Dictionary mapping method names to trajectory data {'x': x_array, 'y': y_array, 't': t_array}
+    title : str
+        Plot title
+    uncertainty_bands : Optional[Dict[str, Dict[str, np.ndarray]]]
+        Uncertainty data for each method {'x_std': array, 'y_std': array}
+    show_arrows : bool
+        Whether to show directional arrows
+    savepath : Optional[str]
+        Path to save figure
+        
+    Returns
+    -------
+    Tuple[plt.Figure, plt.Axes]
+        Figure and axes objects
+    """
+    from matplotlib.patches import FancyArrowPatch
+    
+    fig, ax = plt.subplots(figsize=get_figure_size('single', 4/3))
+    setup_axes_style(ax)
+    
+    colors = get_discrete_colors(len(trajectories))
+    
+    for i, (method_name, traj_data) in enumerate(trajectories.items()):
+        x, y = traj_data['x'], traj_data['y']
+        color = colors[i]
+        
+        # Plot main trajectory
+        ax.plot(x, y, color=color, linewidth=2.5, label=method_name, 
+               alpha=0.9, solid_capstyle='round')
+        
+        # Add uncertainty bands if provided
+        if uncertainty_bands and method_name in uncertainty_bands:
+            unc = uncertainty_bands[method_name]
+            if 'x_std' in unc and 'y_std' in unc:
+                x_low = x - unc['x_std']
+                x_high = x + unc['x_std']
+                y_low = y - unc['y_std']
+                y_high = y + unc['y_std']
+                
+                # Plot uncertainty ellipses at key points
+                n_ellipses = min(10, len(x) // 5)
+                indices = np.linspace(0, len(x)-1, n_ellipses, dtype=int)
+                
+                for idx in indices:
+                    # Create uncertainty ellipse
+                    from matplotlib.patches import Ellipse
+                    ellipse = Ellipse((x[idx], y[idx]), 
+                                    width=2*unc['x_std'][idx], 
+                                    height=2*unc['y_std'][idx],
+                                    facecolor=color, alpha=0.15, 
+                                    edgecolor=color, linewidth=0.5)
+                    ax.add_patch(ellipse)
+        
+        # Add directional arrows
+        if show_arrows and len(x) > 5:
+            arrow_indices = np.arange(len(x)//4, len(x), len(x)//4)[:3]
+            for idx in arrow_indices:
+                if idx < len(x) - 1:
+                    dx = x[idx + 1] - x[idx]
+                    dy = y[idx + 1] - y[idx]
+                    
+                    length = np.sqrt(dx**2 + dy**2)
+                    if length > 0:
+                        scale = 0.03 * (np.max(x) - np.min(x))
+                        dx_norm, dy_norm = dx/length * scale, dy/length * scale
+                        
+                        arrow = FancyArrowPatch(
+                            (x[idx], y[idx]),
+                            (x[idx] + dx_norm, y[idx] + dy_norm),
+                            arrowstyle='->', mutation_scale=12, 
+                            color=color, alpha=0.8, zorder=10
+                        )
+                        ax.add_patch(arrow)
+        
+        # Mark start and end points
+        ax.scatter(x[0], y[0], s=80, color=color, marker='o', 
+                  edgecolors='white', linewidth=1.5, zorder=15, alpha=0.9)
+        ax.scatter(x[-1], y[-1], s=100, color=color, marker='s', 
+                  edgecolors='white', linewidth=1.5, zorder=15, alpha=0.9)
+    
+    # Add trajectory statistics comparison
+    stats_text = "Method Statistics:\n"
+    for method_name, traj_data in trajectories.items():
+        x, y = traj_data['x'], traj_data['y']
+        distance = np.sum(np.sqrt(np.diff(x)**2 + np.diff(y)**2))
+        stats_text += f"{method_name}: {distance:.1f}m\n"
+    
+    props = dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9, 
+                edgecolor='gray', linewidth=1)
+    ax.text(0.02, 0.98, stats_text.strip(), transform=ax.transAxes,
+            verticalalignment='top', fontsize=8, bbox=props, family='monospace')
+    
+    # Professional styling
+    ax.set_xlabel('X [m]', fontweight='bold')
+    ax.set_ylabel('Y [m]', fontweight='bold')
+    ax.set_title(title, fontweight='bold', pad=20)
+    ax.legend(loc='best', framealpha=0.9, shadow=True)
+    ax.grid(True, alpha=0.2, linestyle='--')
+    ax.set_aspect('equal', adjustable='box')
+    
+    if savepath:
+        save_figure(fig, savepath)
+    
+    return fig, ax
+
+
 def create_summary_panel(figures_data: Dict[str, Any],
                         savepath: Optional[str] = None) -> Tuple[plt.Figure, List[plt.Axes]]:
     """Create a 2x2 summary panel combining key results.

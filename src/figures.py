@@ -198,7 +198,11 @@ def fig_theta_sensitivity(d_raw: np.ndarray, d_qp: np.ndarray, theta_values: Lis
 
 
 def fig_runtime_breakdown(runtime_data: Dict[str, float], out_dir: str) -> None:
-    """Plot runtime breakdown (F7)."""
+    """Plot runtime breakdown (F7).
+
+    Expects a cleaned runtime dictionary without nested aggregate keys
+    (e.g., 'ablation_studies' removed when granular parts are present).
+    """
     set_pub_style()
     colors = palette()
     

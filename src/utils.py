@@ -5,6 +5,7 @@ import json
 import math
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
+import logging
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -210,6 +211,102 @@ def check_mapping_consistency(
         raise ValueError(
             f"Radar/telemetry mapping mismatch: median position diff {med:.1f} m exceeds {threshold} m"
         )
+
+
+# Position scale sanity (pre-optimization)
+
+def check_position_scale(
+    positions: np.ndarray,
+    name: str = "positions",
+    abs_position_median_max_m: float = 1e4,
+    median_step_max_m: float = 1e3,
+    enforce: str = "error",
+    hard_max_m: float = 1e7,
+) -> None:
+    """Validate that positions are within expected scales.
+
+    Raises ValueError if median absolute position magnitude or median
+    inter-sample displacement exceeds thresholds.
+
+    Parameters
+    ----------
+    positions: np.ndarray
+        Array of shape (T, 3) with local-frame positions in meters.
+    name: str
+        Label used in error messages.
+    abs_position_median_max_m: float
+        Threshold for median absolute position magnitude (meters).
+    median_step_max_m: float
+        Threshold for median inter-sample displacement (meters).
+    """
+
+    arr = np.asarray(positions, dtype=float)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        raise ValueError(f"{name} must be (T,3) array in meters")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"{name} contain non-finite values")
+
+    pos_med = float(np.median(np.linalg.norm(arr, axis=1)))
+    # Helpful diagnostics for logs
+    pos_p95 = float(np.percentile(np.linalg.norm(arr, axis=1), 95))
+    if arr.shape[0] >= 2:
+        steps = np.linalg.norm(np.diff(arr, axis=0), axis=1)
+        step_med_diag = float(np.median(steps))
+        step_p95_diag = float(np.percentile(steps, 95))
+    else:
+        step_med_diag = 0.0
+        step_p95_diag = 0.0
+    logging.getLogger(__name__).info(
+        f"{name} scale: median |p|={pos_med:.1f}m (p95={pos_p95:.1f}m), step_med={step_med_diag:.2f}m, step_p95={step_p95_diag:.2f}m"
+    )
+    if pos_med > hard_max_m:
+        raise ValueError(
+            f"{name}: median |p| = {pos_med:.1f} m exceeds hard limit {hard_max_m:.1f} m; check mapping/units"
+        )
+    if pos_med > abs_position_median_max_m:
+        msg = (
+            f"{name}: median |p| = {pos_med:.1f} m exceeds {abs_position_median_max_m:.1f} m; check mapping/units"
+        )
+        if str(enforce).lower() == "warn":
+            logging.getLogger(__name__).warning(msg)
+        else:
+            raise ValueError(msg)
+
+    if arr.shape[0] >= 2:
+        steps = np.linalg.norm(np.diff(arr, axis=0), axis=1)
+        step_med = float(np.median(steps))
+        if step_med > hard_max_m:
+            raise ValueError(
+                f"{name}: median step = {step_med:.1f} m exceeds hard limit {hard_max_m:.1f} m; check dt/units"
+            )
+        if step_med > median_step_max_m:
+            msg = (
+                f"{name}: median inter-sample step = {step_med:.1f} m exceeds {median_step_max_m:.1f} m; check dt/units"
+            )
+            if str(enforce).lower() == "warn":
+                logging.getLogger(__name__).warning(msg)
+            else:
+                raise ValueError(msg)
+
+
+# Runtime breakdown cleanup (avoid double counting)
+
+def clean_runtime_breakdown(runtime_data: Dict[str, float]) -> Dict[str, float]:
+    """Return a cleaned runtime dict without aggregated totals.
+
+    Removes 'total_runtime' always.
+    If granular ablation keys are present, removes 'ablation_studies'.
+    """
+
+    cleaned: Dict[str, float] = {}
+    has_ablation_parts = any(k in runtime_data for k in ("soc_ablation", "theta_sensitivity"))
+    for k, v in runtime_data.items():
+        if k == "total_runtime":
+            continue
+        if has_ablation_parts and k == "ablation_studies":
+            continue
+        cleaned[k] = float(v)
+    return cleaned
 
 
 # Hash helpers

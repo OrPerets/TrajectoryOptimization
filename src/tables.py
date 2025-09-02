@@ -41,8 +41,10 @@ def table_aggregate(metrics: List[Dict], out_dir: str) -> None:
         "CEP90_raw",
         "CEP90_qp",
         "CEP90_soc",
+        "RMSE_raw",
         "RMSE_qp",
         "RMSE_soc",
+        "TerminalMiss_raw",
         "TerminalMiss_qp",
         "TerminalMiss_soc",
     ]
@@ -120,7 +122,7 @@ def table_ablation_theta(metrics_by_theta: List[Dict], out_dir: str) -> None:
 
 def table_runtime_breakdown(runtime_data: Dict[str, float], out_dir: str) -> None:
     """Table T5: Runtime breakdown by stage."""
-    # Convert to DataFrame
+    # Convert to DataFrame (expects cleaned runtime without aggregated totals)
     stages = list(runtime_data.keys())
     times = list(runtime_data.values())
     total_time = sum(times)

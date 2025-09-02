@@ -1,0 +1,8 @@
+Stage,Time_s,Percentage
+soc_ablation,12.470,16.3%
+theta_sensitivity,21.712,28.4%
+data_loading,0.036,0.0%
+baseline_optimization,5.338,7.0%
+ablation_studies,34.182,44.7%
+figure_generation,2.808,3.7%
+Total,76.547,100.0%

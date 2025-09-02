@@ -47,6 +47,8 @@ from src.utils import (
     format_p_value,
     aggregate_metrics_with_ci,
     check_error_sanity,
+    check_position_scale,
+    clean_runtime_breakdown,
 )
 
 
@@ -84,9 +86,20 @@ def run_ablation_studies(
     
     print("Running ablation studies...")
     
+    # Prepare cache directory
+    artifacts_dir = os.path.join(out_dir, "artifacts")
+    ensure_dir(artifacts_dir)
+
+    # Flags from config
+    abl_cfg = cfg.get("ablations", {})
+    do_soc = bool(abl_cfg.get("enable_soc_ablation", False))
+    do_theta = bool(abl_cfg.get("enable_theta_sensitivity", False))
+
     # 1. SOC on/off ablation
-    start_time = time.time()
-    print("  - SOC on/off ablation...")
+    res_soc = None
+    if do_soc:
+        start_time = time.time()
+        print("  - SOC on/off ablation...")
     
     sopts_qp = SolverOptions(
         enable_soc=False,
@@ -96,48 +109,92 @@ def run_ablation_studies(
         osqp_opts=cfg["solver"].get("osqp", {}),
         ecos_opts=cfg["solver"].get("ecos", {}),
     )
-    
-    sopts_soc = SolverOptions(
-        enable_soc=True,
-        theta_max_deg=cfg["solver"].get("theta_max_deg", 15),
-        terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
-        terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
-        osqp_opts=cfg["solver"].get("osqp", {}),
-        ecos_opts=cfg["solver"].get("ecos", {}),
+    # Always run QP baseline within ablation function to get comparable structure
+    # Clone outer configs with separate caches to avoid mixing states
+    ocfg_qp = OuterConfig(
+        k_min=ocfg.k_min,
+        k_max=ocfg.k_max,
+        k_grid_points=ocfg.k_grid_points,
+        tol_k=ocfg.tol_k,
+        tol_J=ocfg.tol_J,
+        max_iters=ocfg.max_iters,
+        n_workers=ocfg.n_workers,
+        bracket_factor=ocfg.bracket_factor,
+        k_min_hard=ocfg.k_min_hard,
+        k_max_hard=ocfg.k_max_hard,
+        trust_region=ocfg.trust_region,
+        cache_path=os.path.join(artifacts_dir, "outer_cache_ablation_qp.jsonl"),
+        plot_dir=os.path.join(out_dir, "figures"),
     )
-    
-    res_qp = outer_search(problem_data, scaling, sopts_qp, ocfg)
-    res_soc = outer_search(problem_data, scaling, sopts_soc, ocfg)
-    
-    timing_data["soc_ablation"] = time.time() - start_time
-    
-    # 2. θ_max sensitivity analysis
-    start_time = time.time()
-    print("  - θ_max sensitivity analysis...")
-    
-    theta_values = cfg.get("ablations", {}).get("theta_grid_deg", [10, 15, 20])
-    theta_results = []
-    
-    for theta in theta_values:
-        sopts_theta = SolverOptions(
+
+    res_qp = outer_search(problem_data, scaling, sopts_qp, ocfg_qp)
+
+    if do_soc:
+        sopts_soc = SolverOptions(
             enable_soc=True,
-            theta_max_deg=theta,
+            theta_max_deg=cfg["solver"].get("theta_max_deg", 15),
             terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
             terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
             osqp_opts=cfg["solver"].get("osqp", {}),
             ecos_opts=cfg["solver"].get("ecos", {}),
         )
-        
-        res_theta = outer_search(problem_data, scaling, sopts_theta, ocfg)
-        if res_theta.sol_best and res_theta.sol_best.p is not None:
-            theta_results.append({
-                "theta_max_deg": theta,
-                "k_best": res_theta.k_best,
-                "J_best": res_theta.J_best,
-                "solution": res_theta.sol_best
-            })
+        ocfg_soc = OuterConfig(
+            k_min=ocfg.k_min,
+            k_max=ocfg.k_max,
+            k_grid_points=ocfg.k_grid_points,
+            tol_k=ocfg.tol_k,
+            tol_J=ocfg.tol_J,
+            max_iters=ocfg.max_iters,
+            n_workers=ocfg.n_workers,
+            bracket_factor=ocfg.bracket_factor,
+            k_min_hard=ocfg.k_min_hard,
+            k_max_hard=ocfg.k_max_hard,
+            trust_region=ocfg.trust_region,
+            cache_path=os.path.join(artifacts_dir, "outer_cache_ablation_soc.jsonl"),
+            plot_dir=os.path.join(out_dir, "figures"),
+        )
+        res_soc = outer_search(problem_data, scaling, sopts_soc, ocfg_soc)
+        timing_data["soc_ablation"] = time.time() - start_time
     
-    timing_data["theta_sensitivity"] = time.time() - start_time
+    # 2. θ_max sensitivity analysis
+    theta_results = []
+    if do_theta:
+        start_time = time.time()
+        print("  - θ_max sensitivity analysis...")
+        theta_values = cfg.get("ablations", {}).get("theta_grid_deg", [10, 15, 20])
+        for theta in theta_values:
+            sopts_theta = SolverOptions(
+                enable_soc=True,
+                theta_max_deg=theta,
+                terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
+                terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
+                osqp_opts=cfg["solver"].get("osqp", {}),
+                ecos_opts=cfg["solver"].get("ecos", {}),
+            )
+            ocfg_theta = OuterConfig(
+                k_min=ocfg.k_min,
+                k_max=ocfg.k_max,
+                k_grid_points=ocfg.k_grid_points,
+                tol_k=ocfg.tol_k,
+                tol_J=ocfg.tol_J,
+                max_iters=ocfg.max_iters,
+                n_workers=ocfg.n_workers,
+                bracket_factor=ocfg.bracket_factor,
+                k_min_hard=ocfg.k_min_hard,
+                k_max_hard=ocfg.k_max_hard,
+                trust_region=ocfg.trust_region,
+                cache_path=os.path.join(artifacts_dir, f"outer_cache_theta_{int(theta)}.jsonl"),
+                plot_dir=os.path.join(out_dir, "figures"),
+            )
+            res_theta = outer_search(problem_data, scaling, sopts_theta, ocfg_theta)
+            if res_theta.sol_best and res_theta.sol_best.p is not None:
+                theta_results.append({
+                    "theta_max_deg": theta,
+                    "k_best": res_theta.k_best,
+                    "J_best": res_theta.J_best,
+                    "solution": res_theta.sol_best
+                })
+        timing_data["theta_sensitivity"] = time.time() - start_time
     
     return {
         "qp_result": res_qp,
@@ -212,7 +269,7 @@ def generate_all_figures(
     
     # F7: Runtime breakdown
     if timing_data:
-        fig_runtime_breakdown(timing_data, figures_dir)
+        fig_runtime_breakdown(clean_runtime_breakdown(timing_data), figures_dir)
     
     # F8: Kinematics sanity
     if res_qp.sol_best and res_qp.sol_best.v is not None:
@@ -264,6 +321,9 @@ def generate_all_tables(
     CEP90_qp = cep(d_qp, 0.9)
     RMSE_qp = rmse(d_qp)
     TerminalMiss_qp = float(np.linalg.norm(res_qp.sol_best.p[-1] - processed.telem_xyz[-1]))
+    # Raw baselines
+    RMSE_raw = rmse(d_raw)
+    TerminalMiss_raw = float(np.linalg.norm(processed.radar_xyz[-1] - processed.telem_xyz[-1]))
     
     has_soc = res_soc is not None and res_soc.sol_best and res_soc.sol_best.p is not None
     if has_soc:
@@ -285,7 +345,9 @@ def generate_all_tables(
         "CEP90_raw": CEP90_raw,
         "CEP50_qp": CEP50_qp,
         "CEP90_qp": CEP90_qp,
+        "RMSE_raw": RMSE_raw,
         "RMSE_qp": RMSE_qp,
+        "TerminalMiss_raw": TerminalMiss_raw,
         "TerminalMiss_qp": TerminalMiss_qp,
         "CEP50_soc": CEP50_soc if CEP50_soc is not None else np.nan,
         "CEP90_soc": CEP90_soc if CEP90_soc is not None else np.nan,
@@ -325,23 +387,22 @@ def generate_all_tables(
     
     # T5: Runtime breakdown
     if timing_data:
-        table_runtime_breakdown(timing_data, tables_dir)
+        table_runtime_breakdown(clean_runtime_breakdown(timing_data), tables_dir)
     
     # T6: Solver settings
     table_solver_settings(cfg["solver"], tables_dir)
     
-    # Statistical tests
+    # Statistical tests (Raw vs QP always; include SOC if available)
+    error_data = {
+        "Raw": d_raw,
+        "QP": d_qp,
+    }
     if has_soc:
-        error_data = {
-            "Raw": d_raw,
-            "QP": d_qp,
-            "QP+SOC": d_soc
-        }
-        
-        wilcoxon_results = wilcoxon_comparison_matrix(error_data)
-        if not wilcoxon_results.empty:
-            wilcoxon_results["P_value_formatted"] = wilcoxon_results["P_value"].apply(format_p_value)
-            wilcoxon_results.to_csv(os.path.join(tables_dir, "wilcoxon_tests.csv"), index=False)
+        error_data["QP+SOC"] = d_soc
+    wilcoxon_results = wilcoxon_comparison_matrix(error_data)
+    if not wilcoxon_results.empty:
+        wilcoxon_results["P_value_formatted"] = wilcoxon_results["P_value"].apply(format_p_value)
+        wilcoxon_results.to_csv(os.path.join(tables_dir, "wilcoxon_tests.csv"), index=False)
     
     # Update results index
     write_results_index(tables_dir)
@@ -377,6 +438,28 @@ def run_once(args: argparse.Namespace) -> None:
     load_start = time.time()
     streams = load_streams(args.radar, args.telemetry, cfg)
     processed: Processed = resample_and_filter(streams, cfg, out_dir)
+    # Pre-optimization position sanity checks (configurable)
+    scfg = cfg.get("sanity_checks", {}).get("position_scale", {})
+    enforce = scfg.get("enforce", "warn")
+    abs_med_max = float(scfg.get("abs_position_median_max_m", 2e4))
+    step_med_max = float(scfg.get("median_step_max_m", 2e3))
+    hard_max = float(scfg.get("hard_max_m", 1e7))
+    check_position_scale(
+        processed.radar_xyz,
+        name="radar positions",
+        abs_position_median_max_m=abs_med_max,
+        median_step_max_m=step_med_max,
+        enforce=enforce,
+        hard_max_m=hard_max,
+    )
+    check_position_scale(
+        processed.telem_xyz,
+        name="telemetry positions",
+        abs_position_median_max_m=abs_med_max,
+        median_step_max_m=step_med_max,
+        enforce=enforce,
+        hard_max_m=hard_max,
+    )
     load_time = time.time() - load_start
 
     # Weights (E4)
@@ -400,6 +483,8 @@ def run_once(args: argparse.Namespace) -> None:
 
     scaling = Scaling(enable=cfg["solver"].get("enable_scaling", True), alpha_p=cfg["solver"].get("alpha_p", 1e4), alpha_v=cfg["solver"].get("alpha_v", 1e3))
     
+    artifacts_dir = os.path.join(out_dir, "artifacts")
+    ensure_dir(artifacts_dir)
     ocfg = OuterConfig(
         k_min=float(cfg["outer"].get("k_min", 0.02)),
         k_max=float(cfg["outer"].get("k_max", 0.5)),
@@ -407,6 +492,8 @@ def run_once(args: argparse.Namespace) -> None:
         tol_k=float(cfg["outer"].get("tol_k", 1e-3)),
         tol_J=float(cfg["outer"].get("tol_J", 1e-3)),
         max_iters=int(cfg["outer"].get("max_iters", 30)),
+        cache_path=os.path.join(artifacts_dir, "outer_cache_baseline.jsonl"),
+        plot_dir=os.path.join(out_dir, "figures"),
     )
 
     # Run baseline optimization

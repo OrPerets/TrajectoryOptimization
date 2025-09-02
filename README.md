@@ -22,7 +22,7 @@ python main.py \
   --radar "S1_Hatala_83_sufa_trimmed (1).csv" \
   --telemetry "Telemetric Output Conversion.csv" \
   --config config/default.yaml \
-  --out_dir outputs/s1_run1 \
+  --out_dir outputs/s2_run2 \
   --enable_soc true \
   --theta_max 15
 ```

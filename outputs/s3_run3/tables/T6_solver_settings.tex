@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lll}
+\toprule
+Solver & Parameter & Value \\
+\midrule
+ECOS & abstol & 5e-07 \\
+ECOS & reltol & 5e-07 \\
+OSQP & eps_abs & 2e-05 \\
+OSQP & eps_rel & 2e-05 \\
+OSQP & max_iter & 200000 \\
+General & enable_scaling & True \\
+General & alpha_p & None \\
+General & alpha_v & None \\
+General & enable_soc & True \\
+General & theta_max_deg & 30.0 \\
+\bottomrule
+\end{tabular}
+\caption{Solver configuration and parameters}
+\label{tab:solver_settings}
+\end{table}
