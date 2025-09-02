@@ -38,13 +38,13 @@ Reconstruct weapon trajectories from noisy airborne radar measurements using a c
 ## Sprint Plan and Refinements
 
 ### Sprint 1 (Data robustness & alignment)
-Goals: Make ingestion resilient across projects; enable reliable alignment; solid caches.
-- [ ] Add schema validation and clear errors for required columns; improve alias lists in `config/default.yaml`.
-- [ ] Add unit detection for alt/offsets (ft/m) with metadata logging and warnings.
-- [ ] Implement Doppler proxy alignment when Doppler is missing by constructing LOS from radar host states if available; else document fallback.
-- [ ] Add richer parquet/CSV cache policy: versioned file names with hash of inputs and config.
-- [ ] Write unit tests: time parsing (DOY:HH:MM:SS.sss), unit conversions, offset-to-local mapping.
-- [ ] Document alignment quality checks (lag < 50 ms) and auto-warnings in logs.
+ Goals: Make ingestion resilient across projects; enable reliable alignment; solid caches.
+- [x] Add schema validation and clear errors for required columns; improve alias lists in `config/default.yaml`.
+- [x] Add unit detection for alt/offsets (ft/m) with metadata logging and warnings.
+- [x] Implement Doppler proxy alignment when Doppler is missing by constructing LOS from radar host states if available; else document fallback.
+- [x] Add richer parquet/CSV cache policy: versioned file names with hash of inputs and config.
+- [x] Write unit tests: time parsing (DOY:HH:MM:SS.sss), unit conversions, offset-to-local mapping.
+- [x] Document alignment quality checks (lag < 50 ms) and auto-warnings in logs.
 
 Deliverables: robust loader, alignment report per sortie, cached processed files with hashes.
 
