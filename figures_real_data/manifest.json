@@ -1,0 +1,34 @@
+{
+  "generated_at": "2025-09-02 16:23:12 UTC",
+  "total_figures": 1,
+  "output_directory": "figures_real_data/",
+  "formats": [
+    "pdf",
+    "svg",
+    "png"
+  ],
+  "figures": {
+    "summary_panel": {
+      "base_path": "figures_real_data/Fig_08_Summary_Panel",
+      "files": {
+        "pdf": "figures_real_data/Fig_08_Summary_Panel.pdf",
+        "svg": "figures_real_data/Fig_08_Summary_Panel.svg",
+        "png": "figures_real_data/Fig_08_Summary_Panel.png"
+      },
+      "caption": "Figure: Summary Panel",
+      "paper_section": "Results",
+      "function_used": "summary_panel",
+      "sample_size": "N/A"
+    }
+  },
+  "metadata": {
+    "sample_size": "N/A",
+    "random_seed": 42,
+    "input_file": "S1_Hatala_83_sufa_trimmed (1).csv",
+    "formats": [
+      "pdf",
+      "svg",
+      "png"
+    ]
+  }
+}

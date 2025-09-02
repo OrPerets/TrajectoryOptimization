@@ -104,8 +104,8 @@ def use_paper_style() -> None:
         'axes.linewidth': 0.8,
         'axes.grid': True,
         'axes.grid.axis': 'y',
-        'axes.grid.alpha': 0.25,
-        'axes.grid.linewidth': 0.6,
+        'grid.alpha': 0.25,
+        'grid.linewidth': 0.6,
         
         # Tick settings
         'xtick.major.size': 3.0,
@@ -251,8 +251,7 @@ def save_figure(fig: plt.Figure,
     if metadata is None:
         metadata = {
             'Creator': 'Scientific Visualization Pipeline',
-            'Software': 'matplotlib',
-            'Format': 'Publication Ready'
+            'Title': 'Publication Ready Figure'
         }
     
     for fmt in formats:
