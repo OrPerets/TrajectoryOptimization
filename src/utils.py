@@ -174,3 +174,91 @@ def palette() -> List[str]:
         "#a6761d",
         "#666666",
     ]
+
+
+def format_p_value(p_value: float) -> str:
+    """Format p-value for display with significance indicators."""
+    if p_value < 0.001:
+        return f"{p_value:.3e} ***"
+    elif p_value < 0.01:
+        return f"{p_value:.3f} **"
+    elif p_value < 0.05:
+        return f"{p_value:.3f} *"
+    else:
+        return f"{p_value:.3f}"
+
+
+def calculate_impact_angles(velocities: np.ndarray) -> np.ndarray:
+    """Calculate impact angles from velocity vectors.
+    
+    Args:
+        velocities: Array of shape (N, 3) with velocity vectors [vx, vy, vz]
+        
+    Returns:
+        Array of shape (N,) with impact angles in degrees
+    """
+    # Impact angle is angle from horizontal (xy-plane) to velocity vector
+    # tan(θ) = |v_horizontal| / |v_vertical|
+    v_horizontal = np.linalg.norm(velocities[:, :2], axis=1)  # vx, vy
+    v_vertical = np.abs(velocities[:, 2])  # |vz|
+    
+    # Avoid division by zero
+    mask = v_vertical > 1e-12
+    angles = np.zeros_like(v_horizontal)
+    
+    # Calculate angles where vz is significant
+    angles[mask] = np.arctan2(v_horizontal[mask], v_vertical[mask])
+    
+    # Convert to degrees
+    angles_deg = np.degrees(angles)
+    
+    return angles_deg
+
+
+def aggregate_metrics_with_ci(metrics_list: List[Dict], confidence_level: float = 0.95) -> Dict[str, str]:
+    """Aggregate metrics across sorties with confidence intervals.
+    
+    Args:
+        metrics_list: List of metric dictionaries
+        confidence_level: Confidence level for intervals (default: 0.95)
+        
+    Returns:
+        Dictionary with aggregated metrics in format "median [Q25, Q75] (CI_lower, CI_upper)"
+    """
+    if not metrics_list:
+        return {}
+    
+    # Convert to DataFrame for easier manipulation
+    df = pd.DataFrame(metrics_list)
+    
+    aggregated = {}
+    
+    for col in df.columns:
+        if df[col].dtype in ['float64', 'int64']:
+            values = df[col].dropna()
+            if len(values) > 0:
+                # Calculate statistics
+                median = np.median(values)
+                q25, q75 = np.quantile(values, [0.25, 0.75])
+                
+                # Bootstrap confidence interval
+                n_bootstrap = min(1000, len(values))
+                bootstrap_medians = []
+                for _ in range(n_bootstrap):
+                    sample = np.random.choice(values, size=len(values), replace=True)
+                    bootstrap_medians.append(np.median(sample))
+                
+                bootstrap_medians = np.array(bootstrap_medians)
+                alpha = 1 - confidence_level
+                ci_lower = np.quantile(bootstrap_medians, alpha / 2)
+                ci_upper = np.quantile(bootstrap_medians, 1 - alpha / 2)
+                
+                aggregated[col] = f"{median:.2f} [{q25:.2f}, {q75:.2f}] ({ci_lower:.2f}, {ci_upper:.2f})"
+            else:
+                aggregated[col] = "N/A"
+        else:
+            # For non-numeric columns, just show unique values
+            unique_vals = df[col].unique()
+            aggregated[col] = ", ".join(str(v) for v in unique_vals[:3])  # Limit to first 3
+    
+    return aggregated

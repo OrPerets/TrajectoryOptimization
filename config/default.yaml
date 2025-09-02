@@ -40,12 +40,12 @@ weights:
 
 solver:
   enable_scaling: true
-  alpha_p: 1.0e4
-  alpha_v: 1.0e3
+  alpha_p: null
+  alpha_v: null
   enable_soc: true
   theta_max_deg: 15
-  terminal_altitude_window_m: [ -5.0, 5.0 ]
-  terminal_xy_box_m: 500.0
+  terminal_altitude_window_m: [ -200.0, 200.0 ]
+  terminal_xy_box_m: 5000.0
   osqp:
     eps_abs: 1.0e-5
     eps_rel: 1.0e-5
