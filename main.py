@@ -46,6 +46,7 @@ from src.utils import (
     wilcoxon_comparison_matrix,
     format_p_value,
     aggregate_metrics_with_ci,
+    check_error_sanity,
 )
 
 
@@ -171,6 +172,11 @@ def generate_all_figures(
     d_soc = None
     if res_soc and res_soc.sol_best and res_soc.sol_best.p is not None:
         d_soc, _, _ = trajectory_errors(res_soc.sol_best.p, processed.telem_xyz)
+
+    check_error_sanity(d_raw, "radar vs telemetry errors")
+    check_error_sanity(d_qp, "QP errors")
+    if d_soc is not None:
+        check_error_sanity(d_soc, "SOC errors")
     
     # F1: Trajectory overlay (already exists)
     qp_soc_xyz = res_soc.sol_best.p if res_soc and res_soc.sol_best else None
@@ -248,7 +254,10 @@ def generate_all_tables(
     # Calculate metrics
     d_raw, _, _ = trajectory_errors(processed.radar_xyz, processed.telem_xyz)
     d_qp, _, _ = trajectory_errors(res_qp.sol_best.p, processed.telem_xyz)
-    
+
+    check_error_sanity(d_raw, "radar vs telemetry errors")
+    check_error_sanity(d_qp, "QP errors")
+
     CEP50_raw = cep(d_raw, 0.5)
     CEP90_raw = cep(d_raw, 0.9)
     CEP50_qp = cep(d_qp, 0.5)
@@ -259,6 +268,7 @@ def generate_all_tables(
     has_soc = res_soc is not None and res_soc.sol_best and res_soc.sol_best.p is not None
     if has_soc:
         d_soc, _, _ = trajectory_errors(res_soc.sol_best.p, processed.telem_xyz)
+        check_error_sanity(d_soc, "SOC errors")
         CEP50_soc = cep(d_soc, 0.5)
         CEP90_soc = cep(d_soc, 0.9)
         RMSE_soc = rmse(d_soc)
@@ -482,11 +492,15 @@ def run_once(args: argparse.Namespace) -> None:
     # Calculate final metrics for output
     d_raw, _, _ = trajectory_errors(processed.radar_xyz, processed.telem_xyz)
     d_qp, _, _ = trajectory_errors(res_qp.sol_best.p, processed.telem_xyz)
+
+    check_error_sanity(d_raw, "radar vs telemetry errors")
+    check_error_sanity(d_qp, "QP errors")
     CEP90_qp = cep(d_qp, 0.9)
     
     CEP90_soc = None
     if res_soc and res_soc.sol_best and res_soc.sol_best.p is not None:
         d_soc, _, _ = trajectory_errors(res_soc.sol_best.p, processed.telem_xyz)
+        check_error_sanity(d_soc, "SOC errors")
         CEP90_soc = cep(d_soc, 0.9)
 
     # Done

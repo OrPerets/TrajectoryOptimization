@@ -173,6 +173,45 @@ def wilcoxon_comparison_matrix(error_data: Dict[str, np.ndarray]) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
+def check_error_sanity(errors: np.ndarray, name: str = "errors", max_m: float = 1e5) -> None:
+    """Raise ``ValueError`` if metrics contain NaNs or unrealistic magnitudes.
+
+    Parameters
+    ----------
+    errors: np.ndarray
+        Array of error distances in meters.
+    name: str, optional
+        Name used in the exception message.
+    max_m: float, optional
+        Median threshold in meters above which values are considered implausible.
+    """
+
+    arr = np.asarray(errors, dtype=float)
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"{name} contain non-finite values")
+    med = float(np.nanmedian(np.abs(arr)))
+    if med > max_m:
+        raise ValueError(
+            f"{name} median {med:.1f} m exceeds sanity threshold {max_m} m; check unit scaling"
+        )
+
+
+def check_mapping_consistency(
+    radar_xyz: np.ndarray, telem_xyz: np.ndarray, threshold: float = 1e4
+) -> None:
+    """Verify radar and telemetry positions are co-located within a reasonable bound.
+
+    This helps catch frame or unit mismatches early in the pipeline.
+    """
+
+    diff = np.linalg.norm(radar_xyz - telem_xyz, axis=1)
+    med = float(np.nanmedian(diff))
+    if med > threshold:
+        raise ValueError(
+            f"Radar/telemetry mapping mismatch: median position diff {med:.1f} m exceeds {threshold} m"
+        )
+
+
 # Hash helpers
 
 def sha256_of_file(path: str) -> str:
@@ -230,6 +269,9 @@ def calculate_impact_angles(velocities: np.ndarray) -> np.ndarray:
     Returns:
         Array of shape (N,) with impact angles in degrees
     """
+    if not np.all(np.isfinite(velocities)):
+        raise ValueError("Velocity array contains NaN or inf values")
+
     # Impact angle is angle from horizontal (xy-plane) to velocity vector
     # tan(θ) = |v_horizontal| / |v_vertical|
     v_horizontal = np.linalg.norm(velocities[:, :2], axis=1)  # vx, vy
