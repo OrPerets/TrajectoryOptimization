@@ -140,6 +140,39 @@ def wilcoxon_signed(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
     return float(stat), float(p)
 
 
+def wilcoxon_comparison_matrix(error_data: Dict[str, np.ndarray]) -> pd.DataFrame:
+    """Compute pairwise Wilcoxon signed-rank tests between methods.
+
+    Parameters
+    ----------
+    error_data: Dict[str, np.ndarray]
+        Mapping from method name to error distances of equal length.
+
+    Returns
+    -------
+    pd.DataFrame
+        Table with columns ["Group1", "Group2", "Statistic", "P_value"].
+    """
+
+    methods = list(error_data.keys())
+    rows: List[Dict[str, float]] = []
+    for i in range(len(methods)):
+        for j in range(i + 1, len(methods)):
+            a = np.asarray(error_data[methods[i]])
+            b = np.asarray(error_data[methods[j]])
+            n = min(len(a), len(b))
+            stat, p = wilcoxon_signed(a[:n], b[:n])
+            rows.append(
+                {
+                    "Group1": methods[i],
+                    "Group2": methods[j],
+                    "Statistic": stat,
+                    "P_value": p,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 # Hash helpers
 
 def sha256_of_file(path: str) -> str:
