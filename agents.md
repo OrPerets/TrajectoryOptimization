@@ -105,6 +105,16 @@ Goals: Easier onboarding and repeatability.
 
 Deliverables: packaged tool with strong docs and smoother CLI UX.
 
+### Sprint 7 (Result validation & optimization)
+Goals: Bring reconstruction accuracy to research quality and fix failure modes.
+- [ ] Investigate unrealistic CEP values (~6.47e6 m) and correct unit scaling.
+- [ ] Diagnose SOC path NaNs and validate impact-angle constraints.
+- [ ] Cross-check telemetry vs radar mapping to catch frame/offset errors.
+- [ ] Automate figure/table sanity checks to flag NaNs and extreme metrics.
+- [ ] Re-run experiments with fixes and update OUTPUT_SUMMARY with normalized results.
+
+Deliverables: verified metrics within expected ranges and functional SOC outputs.
+
 ## Backlog (Prioritized)
 - Parallel outer loop on multi-core.
 - Per-axis weighting (anisotropic sensor noise) and altitude-weight emphasis near terminal.
