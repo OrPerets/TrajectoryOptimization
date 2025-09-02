@@ -20,10 +20,25 @@ class Scaling:
     If enabled, positions and velocities are scaled as:
       p = alpha_p * p_s,  v = alpha_v * v_s.
     We co-scale gravity and objective weights accordingly to preserve equivalence.
+    When ``alpha_p`` or ``alpha_v`` is ``None`` the scaling is inferred from
+    the data so that variable magnitudes remain close to :math:`O(1)`.
     """
+
     enable: bool = True
-    alpha_p: float = 1.0e4
-    alpha_v: float = 1.0e3
+    alpha_p: Optional[float] = None
+    alpha_v: Optional[float] = None
+
+    def auto_from_data(self, positions: np.ndarray, dt: float) -> None:
+        """Auto-suggest scaling factors based on data magnitudes."""
+        if not self.enable:
+            return
+        if self.alpha_p is None:
+            max_p = float(np.max(np.linalg.norm(positions, axis=1)))
+            self.alpha_p = max(1.0, 10 ** math.floor(math.log10(max_p + 1e-9)))
+        if self.alpha_v is None:
+            v_est = np.diff(positions, axis=0) / dt
+            max_v = float(np.max(np.linalg.norm(v_est, axis=1)))
+            self.alpha_v = max(1.0, 10 ** math.floor(math.log10(max_v + 1e-9)))
 
 
 @dataclass
@@ -32,9 +47,11 @@ class SolverOptions:
     theta_max_deg: float = 15.0
     terminal_altitude_window_m: Tuple[float, float] = (-5.0, 5.0)
     terminal_xy_box_m: float = 500.0
+    quadratic_tv: bool = False
     osqp_opts: Dict = None
     ecos_opts: Dict = None
     scs_opts: Dict = None
+    tighten_tol: bool = True
 
 
 @dataclass
@@ -53,6 +70,7 @@ class Solution:
     v: Optional[np.ndarray]
     objective: Optional[float]
     infeasibility: Optional[float]
+    diagnostics: Optional[Dict[str, float]] = None
 
 
 # Flat-Earth mapping (M5)
@@ -75,22 +93,29 @@ def geodetic_to_local(phis: np.ndarray, lams: np.ndarray, hs: np.ndarray, phi0: 
 
 # Exact discrete dynamics under linear drag (M1)
 
-def discrete_step_matrices(k: float, dt: float) -> Tuple[np.ndarray, np.ndarray, float]:
+_STEP_CACHE: Dict[Tuple[float, float], Tuple[np.ndarray, np.ndarray, float, float]] = {}
+
+
+def discrete_step_matrices(k: float, dt: float) -> Tuple[np.ndarray, np.ndarray, float, float]:
+    key = (k, dt)
+    if key in _STEP_CACHE:
+        return _STEP_CACHE[key]
     x = k * dt
     if x < 1e-6:
         # series expansions
         e = 1 - x + 0.5 * x**2 - x**3 / 6 + x**4 / 24
         one_minus_e_over_k = (dt - 0.5 * k * dt**2 + (k**2) * dt**3 / 6 - (k**3) * dt**4 / 24)
-        dt_minus_term = (dt - one_minus_e_over_k)
+        dt_minus_term = dt - one_minus_e_over_k
     else:
         e = math.exp(-x)
         one_minus_e_over_k = (1 - e) / k
         dt_minus_term = dt - one_minus_e_over_k
     A = e * np.eye(3)
     B = np.eye(3) * one_minus_e_over_k
-    # gravity drift magnitude coefficient for position update (before applying e_z)
     C_mag = (G0 / k) * dt_minus_term
-    return A, B, C_mag
+    g_step_mag = G0 * (1 - e) / k
+    _STEP_CACHE[key] = (A, B, C_mag, g_step_mag)
+    return _STEP_CACHE[key]
 
 
 def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptions) -> Tuple[cp.Problem, Dict[str, cp.Expression]]:
@@ -103,7 +128,8 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
     w_tv = pd.weights.get("w_TV", 0.0)
     w_final = pd.weights.get("w_final", 0.0)
 
-    # Scaling
+    # Scaling (auto-infer if needed)
+    scaling.auto_from_data(positions_obs, dt)
     alpha_p = float(scaling.alpha_p) if scaling.enable else 1.0
     alpha_v = float(scaling.alpha_v) if scaling.enable else 1.0
 
@@ -118,19 +144,15 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
         launch_fix = np.asarray(pd.launch_fix, dtype=float)
         constraints += [alpha_p * p_s[0, :] == launch_fix]
 
-    # Dynamics for each interval
-    A, B, C_mag = discrete_step_matrices(k, dt)
-    g_step_mag = float(G0 * (1 - math.exp(-k * dt)) / k)  # for velocity update
+    # Dynamics for each interval (vectorized)
+    A, B, C_mag, g_step_mag = discrete_step_matrices(k, dt)
     ez = np.array([0.0, 0.0, 1.0])
-    for i in range(T - 1):
-        # Scaled velocity update
-        constraints += [
-            v_s[i + 1, :] == A @ v_s[i, :] - ez * (g_step_mag / alpha_v),
-        ]
-        # Scaled position update
-        constraints += [
-            p_s[i + 1, :] == p_s[i, :] + (alpha_v / alpha_p) * (B @ v_s[i, :]) - ez * (C_mag / alpha_p),
-        ]
+    g_vec_v = np.tile(ez, (T - 1, 1)) * (g_step_mag / alpha_v)
+    g_vec_p = np.tile(ez, (T - 1, 1)) * (C_mag / alpha_p)
+    constraints += [v_s[1:, :] == v_s[:-1, :] @ A.T - g_vec_v]
+    constraints += [
+        p_s[1:, :] == p_s[:-1, :] + (alpha_v / alpha_p) * (v_s[:-1, :] @ B.T) - g_vec_p
+    ]
 
     # Terminal altitude window around observed terminal altitude
     lo, hi = opts.terminal_altitude_window_m
@@ -162,16 +184,16 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
 
     # Smoothness (second difference on position)
     if w_smooth > 0:
-        D2p_s = p_s[:-2, :] - 2 * p_s[1:-1, :] + p_s[2:, :]
+        D2p_s = cp.diff(p_s, k=2, axis=0)
         obj_terms.append((w_smooth * (alpha_p ** 2)) * cp.sum_squares(D2p_s))
 
     # TV on velocity increments
     if w_tv > 0:
-        Dv_s = v_s[1:, :] - v_s[:-1, :]
-        if opts.enable_soc:
-            obj_terms.append((w_tv * alpha_v) * cp.sum(cp.norm(Dv_s, axis=1)))
-        else:
+        Dv_s = cp.diff(v_s, axis=0)
+        if opts.quadratic_tv:
             obj_terms.append((w_tv * (alpha_v ** 2)) * cp.sum_squares(Dv_s))
+        else:
+            obj_terms.append((w_tv * alpha_v) * cp.sum(cp.norm(Dv_s, axis=1)))
 
     # Terminal fit
     if w_final > 0:
@@ -210,6 +232,7 @@ def solve_inner(
             aux["p_s"].value = init["p"] / (scaling.alpha_p if scaling.enable else 1.0)
         if "v" in init and init["v"] is not None:
             aux["v_s"].value = init["v"] / (scaling.alpha_v if scaling.enable else 1.0)
+
     def _extract() -> Solution:
         p_s_val = aux["p_s"].value
         v_s_val = aux["v_s"].value
@@ -217,20 +240,60 @@ def solve_inner(
         v_val = None if v_s_val is None else v_s_val * (scaling.alpha_v if scaling.enable else 1.0)
         success = prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE)
         infeas = prob.status in (cp.INFEASIBLE, cp.INFEASIBLE_INACCURATE)
-        return Solution(success=success, status=prob.status, p=p_val, v=v_val, objective=prob.value, infeasibility=float(infeas))
+        diagnostics = None
+        if p_val is not None and v_val is not None:
+            A, B, C_mag, g_step_mag = discrete_step_matrices(k, pd.dt)
+            ez = np.array([0.0, 0.0, 1.0])
+            g_v = np.outer(np.ones(p_val.shape[0] - 1), ez) * g_step_mag
+            g_p = np.outer(np.ones(p_val.shape[0] - 1), ez) * C_mag
+            v_res = v_val[1:, :] - (v_val[:-1, :] @ A.T - g_v)
+            p_res = p_val[1:, :] - (p_val[:-1, :] + (v_val[:-1, :] @ B.T) - g_p)
+            diagnostics = {
+                "dyn_v_max": float(np.max(np.abs(v_res))),
+                "dyn_p_max": float(np.max(np.abs(p_res))),
+                "terminal_vz": float(v_val[-1, 2]),
+            }
+        return Solution(
+            success=success,
+            status=prob.status,
+            p=p_val,
+            v=v_val,
+            objective=prob.value,
+            infeasibility=float(infeas),
+            diagnostics=diagnostics,
+        )
 
     # Primary solve: prefer ECOS (handles QP and SOCP)
     try:
-        prob.solve(solver=cp.ECOS, warm_start=warm_start, **(opts.ecos_opts or {}))
+        ecos_opts = {"abstol": 1e-7, "reltol": 1e-7, "feastol": 1e-7}
+        if opts.ecos_opts:
+            ecos_opts.update(opts.ecos_opts)
+        prob.solve(solver=cp.ECOS, warm_start=warm_start, **ecos_opts)
         sol = _extract()
+        if opts.tighten_tol and sol.status == cp.OPTIMAL_INACCURATE:
+            ecos_opts_t = dict(ecos_opts)
+            ecos_opts_t["abstol"] *= 0.1
+            ecos_opts_t["reltol"] *= 0.1
+            ecos_opts_t["feastol"] *= 0.1
+            prob.solve(solver=cp.ECOS, warm_start=warm_start, **ecos_opts_t)
+            sol = _extract()
         if sol.success and sol.p is not None:
             return sol
     except Exception:
         pass
     # Secondary: OSQP for QP
     try:
-        prob.solve(solver=cp.OSQP, warm_start=warm_start, **(opts.osqp_opts or {}))
+        osqp_opts = {"eps_abs": 1e-7, "eps_rel": 1e-7}
+        if opts.osqp_opts:
+            osqp_opts.update(opts.osqp_opts)
+        prob.solve(solver=cp.OSQP, warm_start=warm_start, **osqp_opts)
         sol = _extract()
+        if opts.tighten_tol and sol.status == cp.OPTIMAL_INACCURATE:
+            osqp_opts_t = dict(osqp_opts)
+            osqp_opts_t["eps_abs"] *= 0.1
+            osqp_opts_t["eps_rel"] *= 0.1
+            prob.solve(solver=cp.OSQP, warm_start=warm_start, **osqp_opts_t)
+            sol = _extract()
         if sol.success and sol.p is not None:
             return sol
     except Exception:
