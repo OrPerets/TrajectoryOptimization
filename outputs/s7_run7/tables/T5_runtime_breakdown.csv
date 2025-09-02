@@ -1,0 +1,6 @@
+Stage,Time_s,Percentage
+data_loading,0.035,0.1%
+baseline_optimization,25.830,48.5%
+ablation_studies,25.050,47.1%
+figure_generation,2.295,4.3%
+Total,53.210,100.0%
