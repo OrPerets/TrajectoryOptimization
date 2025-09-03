@@ -1,0 +1,8 @@
+{
+  "ablation_studies": 25.532455682754517,
+  "baseline_optimization": 25.807928562164307,
+  "data_loading": 0.031556129455566406,
+  "figure_generation": 2.4935362339019775,
+  "table_generation": 0.035147905349731445,
+  "total_runtime": 53.903953313827515
+}
