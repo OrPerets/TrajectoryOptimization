@@ -105,8 +105,10 @@ def run_ablation_studies(
     sopts_qp = SolverOptions(
         enable_soc=False,
         theta_max_deg=cfg["solver"].get("theta_max_deg", 15),
-        terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
-        terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
+        alt_window_m=tuple(cfg["solver"].get("alt_window_m", [-5, 5])),
+        xy_box_m=float(cfg["solver"].get("xy_box_m", 500.0)),
+        alt_slack_penalty=float(cfg["solver"].get("alt_slack_penalty", 0.0)),
+        xy_slack_penalty=float(cfg["solver"].get("xy_slack_penalty", 0.0)),
         osqp_opts=cfg["solver"].get("osqp", {}),
         ecos_opts=cfg["solver"].get("ecos", {}),
     )
@@ -134,8 +136,10 @@ def run_ablation_studies(
         sopts_soc = SolverOptions(
             enable_soc=True,
             theta_max_deg=cfg["solver"].get("theta_max_deg", 15),
-            terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
-            terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
+            alt_window_m=tuple(cfg["solver"].get("alt_window_m", [-5, 5])),
+            xy_box_m=float(cfg["solver"].get("xy_box_m", 500.0)),
+            alt_slack_penalty=float(cfg["solver"].get("alt_slack_penalty", 0.0)),
+            xy_slack_penalty=float(cfg["solver"].get("xy_slack_penalty", 0.0)),
             osqp_opts=cfg["solver"].get("osqp", {}),
             ecos_opts=cfg["solver"].get("ecos", {}),
         )
@@ -167,8 +171,10 @@ def run_ablation_studies(
             sopts_theta = SolverOptions(
                 enable_soc=True,
                 theta_max_deg=theta,
-                terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
-                terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
+                alt_window_m=tuple(cfg["solver"].get("alt_window_m", [-5, 5])),
+                xy_box_m=float(cfg["solver"].get("xy_box_m", 500.0)),
+                alt_slack_penalty=float(cfg["solver"].get("alt_slack_penalty", 0.0)),
+                xy_slack_penalty=float(cfg["solver"].get("xy_slack_penalty", 0.0)),
                 osqp_opts=cfg["solver"].get("osqp", {}),
                 ecos_opts=cfg["solver"].get("ecos", {}),
             )
@@ -520,8 +526,10 @@ def run_once(args: argparse.Namespace) -> None:
     sopts_qp = SolverOptions(
         enable_soc=False,
         theta_max_deg=cfg["solver"].get("theta_max_deg", 15),
-        terminal_altitude_window_m=tuple(cfg["solver"].get("terminal_altitude_window_m", [-5, 5])),
-        terminal_xy_box_m=float(cfg["solver"].get("terminal_xy_box_m", 500.0)),
+        alt_window_m=tuple(cfg["solver"].get("alt_window_m", [-5, 5])),
+        xy_box_m=float(cfg["solver"].get("xy_box_m", 500.0)),
+        alt_slack_penalty=float(cfg["solver"].get("alt_slack_penalty", 0.0)),
+        xy_slack_penalty=float(cfg["solver"].get("xy_slack_penalty", 0.0)),
         osqp_opts=cfg["solver"].get("osqp", {}),
         ecos_opts=cfg["solver"].get("ecos", {}),
     )
