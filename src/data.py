@@ -5,7 +5,7 @@ import json
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, List
 
 import numpy as np
 import pandas as pd
@@ -138,6 +138,15 @@ def resample_and_filter(streams: Streams, cfg: Dict, out_dir: str) -> Processed:
 
     # Telemetry positions in local frame
     telem_xyz = geodetic_to_local(telem_lat, telem_lon, telem_alt_vals, phi0, lam0, h0)
+    logger.info(
+        "Telemetry local origin lat=%.6f deg lon=%.6f deg alt=%.1f m; first sample (%.1f, %.1f, %.1f) m",
+        np.rad2deg(phi0),
+        np.rad2deg(lam0),
+        h0,
+        telem_xyz[0, 0],
+        telem_xyz[0, 1],
+        telem_xyz[0, 2],
+    )
 
     # Target geodetic (median values) → local
     tgt_lat_col_telem = _find_first(streams.telemetry, ["Target LAT (deg)"])
@@ -164,6 +173,12 @@ def resample_and_filter(streams: Streams, cfg: Dict, out_dir: str) -> Processed:
         r_alt = streams.radar[radar_alt_col].astype(float).to_numpy()
         r_alt = convert_units(radar_alt_col, r_alt, "radar altitude")
         radar_xyz_abs = geodetic_to_local(r_lat, r_lon, r_alt, phi0, lam0, h0)
+        logger.info(
+            "Radar geodetic converted to local origin; first sample (%.1f, %.1f, %.1f) m",
+            radar_xyz_abs[0, 0],
+            radar_xyz_abs[0, 1],
+            radar_xyz_abs[0, 2],
+        )
     else:
         # Use target geodetic + NED offsets if available
         off_n_col = _find_first(streams.radar, ["Tgt Offset North", "Offset North", "North Offset"])
@@ -186,6 +201,12 @@ def resample_and_filter(streams: Streams, cfg: Dict, out_dir: str) -> Processed:
             e = convert_units(off_e_col, e, "offset east")
             d = convert_units(off_d_col, d, "offset down")
             radar_xyz_abs = np.stack([tgt_xyz[:, 0] + e, tgt_xyz[:, 1] + n, tgt_xyz[:, 2] - d], axis=1)
+            logger.info(
+                "Radar NED offsets converted to local origin; first sample (%.1f, %.1f, %.1f) m",
+                radar_xyz_abs[0, 0],
+                radar_xyz_abs[0, 1],
+                radar_xyz_abs[0, 2],
+            )
             # Build synthetic radar time via radar times parsed earlier
         else:
             raise ValueError("Radar file missing geodetic and NED offset fields required to build positions.")
@@ -217,8 +238,14 @@ def resample_and_filter(streams: Streams, cfg: Dict, out_dir: str) -> Processed:
     telem_xyz_t = np.column_stack([apply_savgol(telem_xyz_t[:, i], w, p) for i in range(3)])
 
     # Cross-check mapping to catch frame/offset issues
-    # Using a much larger threshold to handle coordinate system differences
-    check_mapping_consistency(radar_xyz_t, telem_xyz_t, threshold=1e7)
+    diff = np.linalg.norm(radar_xyz_t - telem_xyz_t, axis=1)
+    med_diff = float(np.nanmedian(diff))
+    logger.info("Radar/telemetry median position diff %.1f m", med_diff)
+    try:
+        check_mapping_consistency(radar_xyz_t, telem_xyz_t, threshold=1e3)
+    except ValueError as e:
+        logger.error(e)
+        raise
 
     # Telemetry velocity by differentiating smoothed position
     telem_vxyz = np.vstack([np.gradient(telem_xyz_t[:, i], dt) for i in range(3)]).T
