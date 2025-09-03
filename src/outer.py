@@ -62,6 +62,8 @@ def _append_cache(path: str, entry: Dict, sol: Solution) -> None:
     if sol.p is not None and sol.v is not None:
         data["p"] = sol.p.tolist()
         data["v"] = sol.v.tolist()
+    if sol.diagnostics:
+        data["diagnostics"] = sol.diagnostics
     with open(path, "a") as f:
         f.write(json.dumps(data) + "\n")
 
@@ -75,9 +77,15 @@ def _load_cache(path: str) -> Tuple[List[Dict], List[Tuple[float, float, Solutio
     with open(path, "r") as f:
         for line in f:
             rec = json.loads(line)
-            history.append({"k": rec["k"], "J": rec["J"], "feasible": rec["feasible"], "stage": rec.get("stage", "cache")})
+            history.append({
+                "k": rec["k"],
+                "J": rec["J"],
+                "feasible": rec["feasible"],
+                "stage": rec.get("stage", "cache"),
+                "diagnostics": rec.get("diagnostics"),
+            })
             if rec.get("feasible") and rec.get("p") is not None:
-                sol = Solution(True, "cached", np.array(rec["p"]), np.array(rec["v"]), rec["J"], None)
+                sol = Solution(True, "cached", np.array(rec["p"]), np.array(rec["v"]), rec["J"], None, rec.get("diagnostics"))
                 feas_list.append((rec["k"], rec["J"], sol))
                 if rec["J"] < best_J:
                     best_J = rec["J"]
@@ -116,19 +124,34 @@ def outer_search(
 
     k_min, k_max = ocfg.k_min, ocfg.k_max
 
+    def _log_infeasible(k: float, diagnostics: Optional[Dict]) -> None:
+        if not diagnostics:
+            return
+        items = sorted(diagnostics.items(), key=lambda kv: abs(kv[1]), reverse=True)
+        msg = ", ".join(f"{n}={v:.3g}" for n, v in items[:3])
+        print(f"Infeasible solve at k={k:.3g}: {msg}")
+
     def _eval_segment(ks: np.ndarray) -> Tuple[List[Dict], List[Tuple[float, float, Solution]]]:
         seg_history: List[Dict] = []
         seg_feas: List[Tuple[float, float, Solution]] = []
         prev: Optional[Solution] = None
         for k in ks:
             J, sol, feas = evaluate_k(k, pd, scaling, opts, warm_start_solution=prev)
-            entry = {"k": k, "J": J, "feasible": bool(feas), "stage": "grid"}
+            entry = {
+                "k": k,
+                "J": J,
+                "feasible": bool(feas),
+                "stage": "grid",
+                "diagnostics": sol.diagnostics,
+            }
             seg_history.append(entry)
             if ocfg.cache_path:
                 _append_cache(ocfg.cache_path, entry, sol)
             if feas:
                 seg_feas.append((k, J, sol))
                 prev = sol
+            else:
+                _log_infeasible(k, sol.diagnostics)
         return seg_history, seg_feas
 
     # Initial sweep with bracket expansion
@@ -199,7 +222,14 @@ def outer_search(
         k_new = min(max(k_new, k_br_low), k_br_high)
 
         J_new, sol_new, feas_new = evaluate_k(k_new, pd, scaling, opts, warm_start_solution=best_sol)
-        entry = {"k": k_new, "J": J_new, "feasible": bool(feas_new), "stage": "refine", "iter": it}
+        entry = {
+            "k": k_new,
+            "J": J_new,
+            "feasible": bool(feas_new),
+            "stage": "refine",
+            "iter": it,
+            "diagnostics": sol_new.diagnostics,
+        }
         history.append(entry)
         if ocfg.cache_path:
             _append_cache(ocfg.cache_path, entry, sol_new)
@@ -213,6 +243,7 @@ def outer_search(
             if abs(k_new - k2) < ocfg.tol_k and abs(J_new - J2) < ocfg.tol_J:
                 break
         else:
+            _log_infeasible(k_new, sol_new.diagnostics)
             if k_new < best_k:
                 k_br_low = max(k_br_low, k_new)
             else:
