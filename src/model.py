@@ -60,7 +60,9 @@ class ProblemData:
     positions_obs: np.ndarray  # shape (T,3) observed radar positions in local frame
     weights: Dict[str, float]
     launch_fix: Optional[np.ndarray] = None  # p0 fixed
-    terminal_anchor: Optional[np.ndarray] = None  # optional terminal position anchor in local frame
+    terminal_anchor: Optional[np.ndarray] = (
+        None  # optional terminal position anchor in local frame
+    )
 
 
 @dataclass
@@ -76,15 +78,23 @@ class Solution:
 
 # Flat-Earth mapping (M5)
 
+
 def wgs84_radii(phi: float) -> Tuple[float, float]:
     s = math.sin(phi)
     denom = math.sqrt(1 - E2_WGS84 * s * s)
     N = A_WGS84 / denom
-    M = A_WGS84 * (1 - E2_WGS84) / (denom ** 3)
+    M = A_WGS84 * (1 - E2_WGS84) / (denom**3)
     return M, N
 
 
-def geodetic_to_local(phis: np.ndarray, lams: np.ndarray, hs: np.ndarray, phi0: float, lam0: float, h0: float) -> np.ndarray:
+def geodetic_to_local(
+    phis: np.ndarray,
+    lams: np.ndarray,
+    hs: np.ndarray,
+    phi0: float,
+    lam0: float,
+    h0: float,
+) -> np.ndarray:
     M, N = wgs84_radii(phi0)
     x = (N + h0) * math.cos(phi0) * (lams - lam0)
     y = (M + h0) * (phis - phi0)
@@ -97,7 +107,9 @@ def geodetic_to_local(phis: np.ndarray, lams: np.ndarray, hs: np.ndarray, phi0: 
 _STEP_CACHE: Dict[Tuple[float, float], Tuple[np.ndarray, np.ndarray, float, float]] = {}
 
 
-def discrete_step_matrices(k: float, dt: float) -> Tuple[np.ndarray, np.ndarray, float, float]:
+def discrete_step_matrices(
+    k: float, dt: float
+) -> Tuple[np.ndarray, np.ndarray, float, float]:
     key = (k, dt)
     if key in _STEP_CACHE:
         return _STEP_CACHE[key]
@@ -105,7 +117,9 @@ def discrete_step_matrices(k: float, dt: float) -> Tuple[np.ndarray, np.ndarray,
     if x < 1e-6:
         # series expansions
         e = 1 - x + 0.5 * x**2 - x**3 / 6 + x**4 / 24
-        one_minus_e_over_k = (dt - 0.5 * k * dt**2 + (k**2) * dt**3 / 6 - (k**3) * dt**4 / 24)
+        one_minus_e_over_k = (
+            dt - 0.5 * k * dt**2 + (k**2) * dt**3 / 6 - (k**3) * dt**4 / 24
+        )
         dt_minus_term = dt - one_minus_e_over_k
     else:
         e = math.exp(-x)
@@ -119,7 +133,9 @@ def discrete_step_matrices(k: float, dt: float) -> Tuple[np.ndarray, np.ndarray,
     return _STEP_CACHE[key]
 
 
-def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptions) -> Tuple[cp.Problem, Dict[str, cp.Expression]]:
+def build_problem(
+    pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptions
+) -> Tuple[cp.Problem, Dict[str, cp.Expression]]:
     # Ensure numeric arrays
     positions_obs = np.asarray(pd.positions_obs, dtype=float)
     T = positions_obs.shape[0]
@@ -157,7 +173,11 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
 
     # Terminal altitude window around anchor (telemetry) if provided, else observed terminal
     lo, hi = opts.terminal_altitude_window_m
-    term_ref = pd.terminal_anchor if pd.terminal_anchor is not None else positions_obs[T - 1, :]
+    term_ref = (
+        pd.terminal_anchor
+        if pd.terminal_anchor is not None
+        else positions_obs[T - 1, :]
+    )
     constraints += [
         p_s[T - 1, 2] >= (term_ref[2] + lo) / alpha_p,
         p_s[T - 1, 2] <= (term_ref[2] + hi) / alpha_p,
@@ -173,33 +193,43 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
     ]
 
     # SOC impact-angle constraint (M2)
+    s = None
     if opts.enable_soc:
         theta = math.radians(opts.theta_max_deg)
         tan_theta = math.tan(theta)
-        constraints += [cp.norm(v_s[T - 1, 0:2], 2) <= tan_theta * (-v_s[T - 1, 2]), v_s[T - 1, 2] <= 0]
+        s = cp.Variable(nonneg=True)
+        constraints += [
+            cp.norm(v_s[T - 1, 0:2], 2) <= tan_theta * (-v_s[T - 1, 2]) + s,
+            v_s[T - 1, 2] <= s,
+        ]
 
     # Objective
     obj_terms = []
     # Sensor fit
     y_s = positions_obs / alpha_p
-    obj_terms.append((w_pos * (alpha_p ** 2)) * cp.sum_squares(p_s - y_s))
+    obj_terms.append((w_pos * (alpha_p**2)) * cp.sum_squares(p_s - y_s))
 
     # Smoothness (second difference on position)
     if w_smooth > 0:
         D2p_s = cp.diff(p_s, k=2, axis=0)
-        obj_terms.append((w_smooth * (alpha_p ** 2)) * cp.sum_squares(D2p_s))
+        obj_terms.append((w_smooth * (alpha_p**2)) * cp.sum_squares(D2p_s))
 
     # TV on velocity increments
     if w_tv > 0:
         Dv_s = cp.diff(v_s, axis=0)
         if opts.quadratic_tv:
-            obj_terms.append((w_tv * (alpha_v ** 2)) * cp.sum_squares(Dv_s))
+            obj_terms.append((w_tv * (alpha_v**2)) * cp.sum_squares(Dv_s))
         else:
             obj_terms.append((w_tv * alpha_v) * cp.sum(cp.norm(Dv_s, axis=1)))
 
     # Terminal fit
     if w_final > 0:
-        obj_terms.append((w_final * (alpha_p ** 2)) * cp.sum_squares(p_s[T - 1, :] - y_s[T - 1, :]))
+        obj_terms.append(
+            (w_final * (alpha_p**2)) * cp.sum_squares(p_s[T - 1, :] - y_s[T - 1, :])
+        )
+
+    if s is not None:
+        obj_terms.append(1e3 * alpha_v * s)
 
     # Numerical regularization for stability
     obj_terms.append(1e-8 * cp.sum_squares(v_s))
@@ -210,6 +240,8 @@ def build_problem(pd: ProblemData, k: float, scaling: Scaling, opts: SolverOptio
     prob = cp.Problem(objective, constraints)
 
     aux = {"p_s": p_s, "v_s": v_s}
+    if s is not None:
+        aux["s"] = s
     return prob, aux
 
 
@@ -238,8 +270,16 @@ def solve_inner(
     def _extract() -> Solution:
         p_s_val = aux["p_s"].value
         v_s_val = aux["v_s"].value
-        p_val = None if p_s_val is None else p_s_val * (scaling.alpha_p if scaling.enable else 1.0)
-        v_val = None if v_s_val is None else v_s_val * (scaling.alpha_v if scaling.enable else 1.0)
+        p_val = (
+            None
+            if p_s_val is None
+            else p_s_val * (scaling.alpha_p if scaling.enable else 1.0)
+        )
+        v_val = (
+            None
+            if v_s_val is None
+            else v_s_val * (scaling.alpha_v if scaling.enable else 1.0)
+        )
         success = prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE)
         infeas = prob.status in (cp.INFEASIBLE, cp.INFEASIBLE_INACCURATE)
         diagnostics = None
@@ -305,4 +345,11 @@ def solve_inner(
         prob.solve(solver=cp.SCS, warm_start=warm_start, **(opts.scs_opts or {}))
         return _extract()
     except Exception as e:
-        return Solution(success=False, status=str(e), p=None, v=None, objective=None, infeasibility=None)
+        return Solution(
+            success=False,
+            status=str(e),
+            p=None,
+            v=None,
+            objective=None,
+            infeasibility=None,
+        )
