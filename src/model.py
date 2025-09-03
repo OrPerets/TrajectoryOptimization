@@ -290,10 +290,42 @@ def solve_inner(
             g_p = np.outer(np.ones(p_val.shape[0] - 1), ez) * C_mag
             v_res = v_val[1:, :] - (v_val[:-1, :] @ A.T - g_v)
             p_res = p_val[1:, :] - (p_val[:-1, :] + (v_val[:-1, :] @ B.T) - g_p)
+
+            # Terminal constraints residuals
+            lo, hi = opts.terminal_altitude_window_m
+            term_ref = pd.terminal_anchor if pd.terminal_anchor is not None else pd.positions_obs[-1, :]
+            alt_low = term_ref[2] + lo
+            alt_high = term_ref[2] + hi
+            alt_res = max(0.0, alt_low - p_val[-1, 2], p_val[-1, 2] - alt_high)
+
+            box = opts.terminal_xy_box_m
+            x_lo = term_ref[0] - box
+            x_hi = term_ref[0] + box
+            y_lo = term_ref[1] - box
+            y_hi = term_ref[1] + box
+            xy_res = max(
+                0.0,
+                x_lo - p_val[-1, 0],
+                p_val[-1, 0] - x_hi,
+                y_lo - p_val[-1, 1],
+                p_val[-1, 1] - y_hi,
+            )
+
+            soc_res = 0.0
+            if opts.enable_soc:
+                theta = math.radians(opts.theta_max_deg)
+                tan_theta = math.tan(theta)
+                soc_res = max(0.0, np.linalg.norm(v_val[-1, 0:2]) - tan_theta * (-v_val[-1, 2]))
+
+            vz_pos = max(0.0, v_val[-1, 2])
+
             diagnostics = {
                 "dyn_v_max": float(np.max(np.abs(v_res))),
                 "dyn_p_max": float(np.max(np.abs(p_res))),
-                "terminal_vz": float(v_val[-1, 2]),
+                "terminal_alt_violation": float(alt_res),
+                "terminal_xy_violation": float(xy_res),
+                "soc_violation": float(soc_res),
+                "vz_positive": float(vz_pos),
             }
         return Solution(
             success=success,
