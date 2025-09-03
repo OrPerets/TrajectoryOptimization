@@ -45,8 +45,10 @@ class Scaling:
 class SolverOptions:
     enable_soc: bool = True
     theta_max_deg: float = 15.0
-    terminal_altitude_window_m: Tuple[float, float] = (-5.0, 5.0)
-    terminal_xy_box_m: float = 500.0
+    alt_window_m: Tuple[float, float] = (-5.0, 5.0)
+    xy_box_m: float = 500.0
+    alt_slack_penalty: float = 0.0
+    xy_slack_penalty: float = 0.0
     quadratic_tv: bool = False
     osqp_opts: Dict = None
     ecos_opts: Dict = None
@@ -156,6 +158,9 @@ def build_problem(
 
     constraints = []
 
+    s_alt = None
+    s_xy = None
+
     # launch fix
     if pd.launch_fix is not None:
         launch_fix = np.asarray(pd.launch_fix, dtype=float)
@@ -172,25 +177,41 @@ def build_problem(
     ]
 
     # Terminal altitude window around anchor (telemetry) if provided, else observed terminal
-    lo, hi = opts.terminal_altitude_window_m
+    lo, hi = opts.alt_window_m
     term_ref = (
         pd.terminal_anchor
         if pd.terminal_anchor is not None
         else positions_obs[T - 1, :]
     )
-    constraints += [
-        p_s[T - 1, 2] >= (term_ref[2] + lo) / alpha_p,
-        p_s[T - 1, 2] <= (term_ref[2] + hi) / alpha_p,
-    ]
+    if opts.alt_slack_penalty > 0:
+        s_alt = cp.Variable(nonneg=True)
+        constraints += [
+            p_s[T - 1, 2] >= (term_ref[2] + lo) / alpha_p - s_alt,
+            p_s[T - 1, 2] <= (term_ref[2] + hi) / alpha_p + s_alt,
+        ]
+    else:
+        constraints += [
+            p_s[T - 1, 2] >= (term_ref[2] + lo) / alpha_p,
+            p_s[T - 1, 2] <= (term_ref[2] + hi) / alpha_p,
+        ]
 
     # Terminal xy box centered at anchor (telemetry) if provided, else observed terminal (robust box constraint)
-    box = opts.terminal_xy_box_m
-    constraints += [
-        p_s[T - 1, 0] >= (term_ref[0] - box) / alpha_p,
-        p_s[T - 1, 0] <= (term_ref[0] + box) / alpha_p,
-        p_s[T - 1, 1] >= (term_ref[1] - box) / alpha_p,
-        p_s[T - 1, 1] <= (term_ref[1] + box) / alpha_p,
-    ]
+    box = opts.xy_box_m
+    if opts.xy_slack_penalty > 0:
+        s_xy = cp.Variable(nonneg=True)
+        constraints += [
+            p_s[T - 1, 0] >= (term_ref[0] - box) / alpha_p - s_xy,
+            p_s[T - 1, 0] <= (term_ref[0] + box) / alpha_p + s_xy,
+            p_s[T - 1, 1] >= (term_ref[1] - box) / alpha_p - s_xy,
+            p_s[T - 1, 1] <= (term_ref[1] + box) / alpha_p + s_xy,
+        ]
+    else:
+        constraints += [
+            p_s[T - 1, 0] >= (term_ref[0] - box) / alpha_p,
+            p_s[T - 1, 0] <= (term_ref[0] + box) / alpha_p,
+            p_s[T - 1, 1] >= (term_ref[1] - box) / alpha_p,
+            p_s[T - 1, 1] <= (term_ref[1] + box) / alpha_p,
+        ]
 
     # SOC impact-angle constraint (M2)
     s = None
@@ -230,6 +251,10 @@ def build_problem(
 
     if s is not None:
         obj_terms.append(1e3 * alpha_v * s)
+    if s_alt is not None:
+        obj_terms.append((opts.alt_slack_penalty * (alpha_p**2)) * cp.square(s_alt))
+    if s_xy is not None:
+        obj_terms.append((opts.xy_slack_penalty * (alpha_p**2)) * cp.square(s_xy))
 
     # Numerical regularization for stability
     obj_terms.append(1e-8 * cp.sum_squares(v_s))
@@ -242,6 +267,10 @@ def build_problem(
     aux = {"p_s": p_s, "v_s": v_s}
     if s is not None:
         aux["s"] = s
+    if s_alt is not None:
+        aux["s_alt"] = s_alt
+    if s_xy is not None:
+        aux["s_xy"] = s_xy
     return prob, aux
 
 
@@ -292,13 +321,13 @@ def solve_inner(
             p_res = p_val[1:, :] - (p_val[:-1, :] + (v_val[:-1, :] @ B.T) - g_p)
 
             # Terminal constraints residuals
-            lo, hi = opts.terminal_altitude_window_m
+            lo, hi = opts.alt_window_m
             term_ref = pd.terminal_anchor if pd.terminal_anchor is not None else pd.positions_obs[-1, :]
             alt_low = term_ref[2] + lo
             alt_high = term_ref[2] + hi
             alt_res = max(0.0, alt_low - p_val[-1, 2], p_val[-1, 2] - alt_high)
 
-            box = opts.terminal_xy_box_m
+            box = opts.xy_box_m
             x_lo = term_ref[0] - box
             x_hi = term_ref[0] + box
             y_lo = term_ref[1] - box
