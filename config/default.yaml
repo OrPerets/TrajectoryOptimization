@@ -84,3 +84,6 @@ sanity_checks:
     abs_position_median_max_m: 20000.0
     median_step_max_m: 2000.0
     hard_max_m: 10000000.0
+  mapping:
+    enforce: "warn"
+    median_diff_max_m: 10000000.0

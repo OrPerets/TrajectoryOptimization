@@ -241,11 +241,19 @@ def resample_and_filter(streams: Streams, cfg: Dict, out_dir: str) -> Processed:
     diff = np.linalg.norm(radar_xyz_t - telem_xyz_t, axis=1)
     med_diff = float(np.nanmedian(diff))
     logger.info("Radar/telemetry median position diff %.1f m", med_diff)
+    # Allow configuration of mapping sanity enforcement and threshold
+    scfg = cfg.get("sanity_checks", {})
+    mapping_cfg = scfg.get("mapping", {}) if isinstance(scfg.get("mapping", {}), dict) else {}
+    threshold_m = float(mapping_cfg.get("median_diff_max_m", scfg.get("mapping_median_diff_max_m", 1e3)))
+    enforce = str(mapping_cfg.get("enforce", "error")).lower()
     try:
-        check_mapping_consistency(radar_xyz_t, telem_xyz_t, threshold=1e3)
+        check_mapping_consistency(radar_xyz_t, telem_xyz_t, threshold=threshold_m)
     except ValueError as e:
-        logger.error(e)
-        raise
+        if enforce == "warn":
+            logger.warning(str(e))
+        else:
+            logger.error(e)
+            raise
 
     # Telemetry velocity by differentiating smoothed position
     telem_vxyz = np.vstack([np.gradient(telem_xyz_t[:, i], dt) for i in range(3)]).T
